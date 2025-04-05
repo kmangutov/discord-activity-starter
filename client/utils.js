@@ -149,4 +149,89 @@ export function getRandomColor() {
     '#33FFF5'  // Cyan
   ];
   return colors[Math.floor(Math.random() * colors.length)];
+}
+
+// Check WebSocket connectivity
+export async function checkWebSocketConnectivity(url) {
+  return new Promise((resolve, reject) => {
+    try {
+      logDebug(`Testing WebSocket connectivity to ${url}`);
+      const testSocket = new WebSocket(url);
+      
+      // Set a timeout to prevent hanging
+      const timeout = setTimeout(() => {
+        testSocket.close();
+        reject(new Error('WebSocket connection timeout'));
+      }, 5000);
+      
+      testSocket.onopen = () => {
+        clearTimeout(timeout);
+        logDebug('WebSocket connection test successful');
+        
+        // Send a test message
+        testSocket.send(JSON.stringify({
+          type: 'connectivity_test'
+        }));
+        
+        // Close after successful check
+        setTimeout(() => {
+          testSocket.close();
+          resolve(true);
+        }, 500);
+      };
+      
+      testSocket.onerror = (error) => {
+        clearTimeout(timeout);
+        logDebug(`WebSocket connection test failed: ${JSON.stringify(error)}`, 'error');
+        reject(error);
+      };
+      
+    } catch (error) {
+      logDebug(`Failed to create test WebSocket: ${error.message}`, 'error');
+      reject(error);
+    }
+  });
+}
+
+// Enhanced logging for WebSocket events
+export function setupWebSocketLogging(socket, prefix = '') {
+  if (!socket) return;
+  
+  // Store original handlers if they exist
+  const originalOnOpen = socket.onopen;
+  const originalOnMessage = socket.onmessage;
+  const originalOnClose = socket.onclose;
+  const originalOnError = socket.onerror;
+  
+  // Enhance onopen
+  socket.onopen = (event) => {
+    logDebug(`${prefix}WebSocket connected`);
+    if (originalOnOpen) originalOnOpen.call(socket, event);
+  };
+  
+  // Enhance onmessage
+  socket.onmessage = (event) => {
+    try {
+      const data = JSON.parse(event.data);
+      logDebug(`${prefix}WebSocket received: ${data.type}`);
+    } catch (e) {
+      logDebug(`${prefix}WebSocket received non-JSON message`);
+    }
+    if (originalOnMessage) originalOnMessage.call(socket, event);
+  };
+  
+  // Enhance onclose
+  socket.onclose = (event) => {
+    logDebug(`${prefix}WebSocket closed: ${event.code} - ${event.reason}`, 
+      event.code === 1000 ? 'info' : 'warning');
+    if (originalOnClose) originalOnClose.call(socket, event);
+  };
+  
+  // Enhance onerror
+  socket.onerror = (event) => {
+    logDebug(`${prefix}WebSocket error`, 'error');
+    if (originalOnError) originalOnError.call(socket, event);
+  };
+  
+  return socket;
 } 

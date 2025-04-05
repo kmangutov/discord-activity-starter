@@ -23,6 +23,12 @@ let availableGames = [];
 // Store the main app container
 let appContainer;
 
+// Store WebSocket server URL for consistency
+const getWebSocketUrl = () => {
+  const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+  return `${protocol}//${window.location.host}`;
+};
+
 const discordSdk = new DiscordSDK(import.meta.env.VITE_DISCORD_CLIENT_ID);
 
 // Initialize the app
@@ -46,6 +52,7 @@ document.addEventListener('DOMContentLoaded', () => {
   
   setupDiscordSdk().then(() => {
     logDebug("Discord SDK is authenticated");
+    logDebug(`Using instance ID: ${discordSdk.instanceId}`);
     
     // Fetch initial participants
     fetchParticipants();
@@ -334,35 +341,73 @@ function startGame(gameId) {
   // Get current user ID from auth
   const userId = auth?.user?.id || 'anonymous';
   
+  // Log important information for multiplayer
+  logDebug(`Starting ${gameId} for user ${userId} in instance ${discordSdk.instanceId}`);
+  
   // Initialize the appropriate game
   if (gameId === 'canvas') {
-    // Create the GameCanvas instance
-    currentGame = new GameCanvas(
-      gameContainer, 
-      discordSdk.instanceId, 
-      userId, 
-      () => showLobby() // Callback to return to lobby
-    );
+    try {
+      // Create the GameCanvas instance
+      currentGame = new GameCanvas(
+        gameContainer, 
+        discordSdk.instanceId, 
+        userId, 
+        () => showLobby() // Callback to return to lobby
+      );
+    } catch (error) {
+      logDebug(`Error initializing Canvas game: ${error.message}`, 'error');
+      showGameError(gameContainer, error, gameId);
+    }
   } else if (gameId === 'dotgame') {
-    // Initialize the dot game using our new DotGame class
-    currentGame = new DotGame(
-      gameContainer,
-      discordSdk.instanceId,
-      userId,
-      () => showLobby() // Callback to return to lobby
-    );
+    try {
+      // Initialize the dot game using our new DotGame class
+      currentGame = new DotGame(
+        gameContainer,
+        discordSdk.instanceId,
+        userId,
+        () => showLobby() // Callback to return to lobby
+      );
+    } catch (error) {
+      logDebug(`Error initializing Dot game: ${error.message}`, 'error');
+      showGameError(gameContainer, error, gameId);
+    }
   } else {
     // Handle unknown game type
-    gameContainer.innerHTML = `<div class="error-message">Unknown game type: ${gameId}</div>`;
-    
-    // Add a button to return to lobby
-    const backButton = document.createElement('button');
-    backButton.textContent = 'Back to Lobby';
-    backButton.className = 'canvas-button';
-    backButton.addEventListener('click', showLobby);
-    gameContainer.appendChild(backButton);
+    showGameError(gameContainer, new Error(`Unknown game type: ${gameId}`), gameId);
   }
   
   // Render participants in the sidebar
   renderParticipants(participants);
+}
+
+// Helper function to show game errors
+function showGameError(container, error, gameId) {
+  container.innerHTML = `
+    <div class="error-message">
+      <h3>Error starting ${gameId}</h3>
+      <p>${error.message}</p>
+      <div class="error-details">
+        <p>Please check the following:</p>
+        <ul>
+          <li>Your network connection is working</li>
+          <li>The WebSocket server is running at ${getWebSocketUrl()}</li>
+          <li>You have permissions to access this activity</li>
+        </ul>
+      </div>
+    </div>
+  `;
+  
+  // Add a button to return to lobby
+  const backButton = document.createElement('button');
+  backButton.textContent = 'Back to Lobby';
+  backButton.className = 'canvas-button';
+  backButton.addEventListener('click', showLobby);
+  container.appendChild(backButton);
+  
+  // Add a retry button
+  const retryButton = document.createElement('button');
+  retryButton.textContent = 'Retry';
+  retryButton.className = 'canvas-button';
+  retryButton.addEventListener('click', () => startGame(gameId));
+  container.appendChild(retryButton);
 }

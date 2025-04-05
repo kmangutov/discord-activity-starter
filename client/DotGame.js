@@ -2,7 +2,7 @@
  * DotGame.js - Client-side dot visualization component
  * A simple multiplayer dot visualization that can be controlled via WebSocket
  */
-import { logDebug, getRandomColor } from './utils.js';
+import { logDebug, getRandomColor, checkWebSocketConnectivity, setupWebSocketLogging } from './utils.js';
 
 class DotGame {
   constructor(container, instanceId, userId, onLeaveCallback) {
@@ -13,12 +13,17 @@ class DotGame {
     this.socket = null;
     this.dots = new Map();
     this.userColor = getRandomColor();
+    this.reconnectAttempts = 0;
+    this.maxReconnectAttempts = 3;
     
     // Create UI components
     this.createUI();
     
-    // Connect to WebSocket
-    this.connectWebSocket();
+    // Test connectivity before attempting to connect
+    this.checkConnectivityAndConnect();
+    
+    // Log important game initialization info
+    logDebug(`DotGame initialized for user: ${userId} in instance: ${instanceId}`);
   }
   
   createUI() {
@@ -57,45 +62,116 @@ class DotGame {
     this.setStatus('Connecting to dot game...');
   }
   
+  async checkConnectivityAndConnect() {
+    // Get WebSocket URL
+    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const wsUrl = `${protocol}//${window.location.host}`;
+    
+    this.setStatus('Testing WebSocket connectivity...');
+    
+    try {
+      // First check connectivity
+      await checkWebSocketConnectivity(wsUrl);
+      // If we get here, connectivity test passed
+      this.connectWebSocket();
+    } catch (error) {
+      logDebug(`WebSocket connectivity test failed: ${error.message}`, 'error');
+      this.setStatus(`Cannot connect to game server. Check your network connection.`);
+      
+      // Add retry button
+      const retryButton = document.createElement('button');
+      retryButton.textContent = 'Retry Connection';
+      retryButton.className = 'canvas-button';
+      retryButton.style.marginTop = '10px';
+      retryButton.addEventListener('click', () => {
+        this.checkConnectivityAndConnect();
+      });
+      
+      // Add to controls if it doesn't already have a retry button
+      const controls = this.container.querySelector('.dot-game-controls');
+      if (controls && !controls.querySelector('.retry-button')) {
+        retryButton.classList.add('retry-button');
+        controls.appendChild(retryButton);
+      }
+    }
+  }
+  
   connectWebSocket() {
     // Connect to the WebSocket server
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
     const wsUrl = `${protocol}//${window.location.host}`;
     
-    this.socket = new WebSocket(wsUrl);
+    logDebug(`Connecting to WebSocket at ${wsUrl}`);
     
-    this.socket.onopen = () => {
-      this.setStatus('Connected! Joining dot game...');
+    try {
+      this.socket = new WebSocket(wsUrl);
       
-      // Join the room with dotgame type
-      this.socket.send(JSON.stringify({
-        type: 'join_room',
-        instanceId: this.instanceId,
-        userId: this.userId,
-        gameType: 'dotgame'
-      }));
+      // Set up enhanced logging
+      setupWebSocketLogging(this.socket, 'DotGame: ');
       
-      // Also send our initial position
-      this.sendPosition(Math.random() * 500, Math.random() * 300);
-    };
-    
-    this.socket.onmessage = (event) => {
-      try {
-        const message = JSON.parse(event.data);
-        this.handleMessage(message);
-      } catch (error) {
-        console.error('Error parsing WebSocket message:', error);
-      }
-    };
-    
-    this.socket.onclose = () => {
-      this.setStatus('Disconnected from dot game');
-    };
-    
-    this.socket.onerror = (error) => {
-      this.setStatus('Connection error');
-      console.error('WebSocket error:', error);
-    };
+      this.socket.onopen = () => {
+        this.reconnectAttempts = 0;
+        this.setStatus('Connected! Joining dot game...');
+        logDebug(`WebSocket connection established, joining room: ${this.instanceId}`);
+        
+        // Join the room with dotgame type
+        this.socket.send(JSON.stringify({
+          type: 'join_room',
+          instanceId: this.instanceId,
+          userId: this.userId,
+          gameType: 'dotgame'
+        }));
+        
+        // Also send our initial position
+        this.sendPosition(Math.random() * 500, Math.random() * 300);
+      };
+      
+      this.socket.onmessage = (event) => {
+        try {
+          const message = JSON.parse(event.data);
+          // Log incoming message types for debugging
+          logDebug(`Received message type: ${message.type}`);
+          this.handleMessage(message);
+        } catch (error) {
+          console.error('Error parsing WebSocket message:', error);
+          logDebug(`WebSocket message parse error: ${error.message}`, 'error');
+        }
+      };
+      
+      this.socket.onclose = (event) => {
+        logDebug(`WebSocket closed. Code: ${event.code}, Reason: ${event.reason}`, 'warning');
+        this.setStatus(`Disconnected from dot game (Code: ${event.code})`);
+        
+        // Try to reconnect if not intentionally closed
+        if (event.code !== 1000 && this.reconnectAttempts < this.maxReconnectAttempts) {
+          this.reconnectAttempts++;
+          const delay = this.reconnectAttempts * 1000;
+          this.setStatus(`Connection lost. Reconnecting in ${delay/1000}s...`);
+          logDebug(`Attempting reconnect ${this.reconnectAttempts}/${this.maxReconnectAttempts} in ${delay}ms`);
+          
+          setTimeout(() => {
+            this.connectWebSocket();
+          }, delay);
+        }
+      };
+      
+      this.socket.onerror = (error) => {
+        const errorDetail = JSON.stringify(error);
+        logDebug(`WebSocket error: ${errorDetail}`, 'error');
+        this.setStatus(`Connection error. Check console for details.`);
+        
+        // Log more helpful information for debugging
+        console.error('WebSocket error details:', {
+          url: wsUrl,
+          readyState: this.socket ? this.socket.readyState : 'socket not created',
+          instance: this.instanceId,
+          userId: this.userId
+        });
+      };
+    } catch (error) {
+      logDebug(`Failed to create WebSocket: ${error.message}`, 'error');
+      this.setStatus(`Failed to create WebSocket connection: ${error.message}`);
+    }
   }
   
   handleMessage(message) {
@@ -103,8 +179,10 @@ class DotGame {
       switch (message.type) {
         case 'state_sync':
           // Sync existing dots
+          logDebug(`Received state sync with ${message.state && message.state.positions ? Object.keys(message.state.positions).length : 0} positions`);
           if (message.state && message.state.positions) {
             for (const [participantId, position] of Object.entries(message.state.positions)) {
+              logDebug(`Updating dot for participant: ${participantId}`);
               this.updateDot(participantId, position.x, position.y, position.color);
             }
           }
@@ -113,6 +191,7 @@ class DotGame {
           
         case 'dot_update':
           // Update a dot position
+          logDebug(`Received dot update for user: ${message.userId}`);
           this.updateDot(
             message.userId,
             message.position.x,
@@ -122,20 +201,31 @@ class DotGame {
           break;
           
         case 'user_joined':
+          logDebug(`User joined: ${message.userId}, total: ${message.participantCount}`);
           this.setStatus(`User joined! (${message.participantCount} total)`);
           break;
           
         case 'user_left':
           // Remove the dot for this user
+          logDebug(`User left: ${message.userId}, remaining: ${message.participantCount}`);
           if (this.dots.has(message.userId)) {
             this.dotDisplay.removeChild(this.dots.get(message.userId));
             this.dots.delete(message.userId);
           }
           this.setStatus(`User left. (${message.participantCount} remaining)`);
           break;
+          
+        case 'error':
+          logDebug(`Server returned error: ${message.message}`, 'error');
+          this.setStatus(`Server error: ${message.message}`);
+          break;
+          
+        default:
+          logDebug(`Unknown message type: ${message.type}`, 'warning');
       }
     } catch (error) {
       console.error('Error handling dot game message:', error);
+      logDebug(`Error in handleMessage: ${error.message}`, 'error');
     }
   }
   
