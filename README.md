@@ -385,5 +385,5 @@ The updated project structure after refactoring:
 
 This project is designed to be easily hosted on platforms like Railway, with all necessary Discord Activity integration handled automatically.
 
-Hosted at: brebiskingactivity-production.up.railway.app
+'main' branch hosted at/released to: brebiskingactivity-production.up.railway.app
 Discord application ID: 1277120837555851328
