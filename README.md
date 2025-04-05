@@ -2,6 +2,10 @@
 
 A "sidecart" framework for easily adding and hosting multiplayer games in Discord Activities. This project handles all the scaffolding needed to create, manage, and connect games through WebSockets, allowing developers to focus on creating the games themselves.
 
+![1](screenshots/image1.png)
+![2](screenshots/image2.png)
+
+
 ## Features
 
 - **Easy Game Development**: Add new games by simply creating game files in the repo
