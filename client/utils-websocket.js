@@ -229,11 +229,68 @@ export function setupWebSocketLogging(socket, prefix = '') {
  
   // Enhance onerror
   socket.onerror = (event) => {
-    logDebug(`${prefix}WebSocket error`, 'error');
+    // Extract more information from error event
+    const errorInfo = extractErrorInfo(event);
+    logDebug(`${prefix}WebSocket error: ${errorInfo}`, 'error');
     if (originalOnError) originalOnError.call(socket, event);
   };
  
   return socket;
+}
+
+// Extract useful information from error objects
+function extractErrorInfo(error) {
+  try {
+    // If it's an Event object with an error property (common in WebSocket errors)
+    if (error && error.error) {
+      return extractErrorInfo(error.error);
+    }
+    
+    // Try to get standard error properties
+    const errorProps = ["message", "name", "code", "type", "status", "statusText", "cause"];
+    const extractedInfo = {};
+    
+    // Copy enumerable and non-enumerable properties
+    errorProps.forEach(prop => {
+      if (error[prop] !== undefined) {
+        extractedInfo[prop] = error[prop];
+      }
+    });
+    
+    // Add stack if available but trimmed
+    if (error.stack) {
+      const stackLines = error.stack.split('\n');
+      extractedInfo.stack = stackLines.length > 3 ? 
+        stackLines.slice(0, 3).join('\n') + '...' : 
+        error.stack;
+    }
+    
+    // If we have no properties but it's an object with a toString method
+    if (Object.keys(extractedInfo).length === 0 && typeof error === 'object' && error !== null) {
+      // For Event objects, try to get more info
+      if (error instanceof Event) {
+        extractedInfo.type = error.type;
+        extractedInfo.target = error.target ? 
+          (error.target.url || error.target.constructor.name) : 
+          'unknown';
+        extractedInfo.isTrusted = error.isTrusted;
+        
+        // For WebSocket specific errors
+        if (error.target instanceof WebSocket) {
+          extractedInfo.readyState = ['CONNECTING', 'OPEN', 'CLOSING', 'CLOSED'][error.target.readyState];
+          extractedInfo.url = error.target.url;
+        }
+      } else {
+        // Last resort - use toString()
+        return error.toString();
+      }
+    }
+    
+    return JSON.stringify(extractedInfo);
+  } catch (e) {
+    // If all else fails, return a basic message
+    return `Error: ${error && error.message ? error.message : 'Unknown error'}`;
+  }
 }
 
 // Check if environment variables are properly loaded
@@ -363,8 +420,26 @@ export function getWebSocketInstance() {
     };
    
     wsInstance.onerror = (error) => {
-      logDebug(`WebSocket error: ${JSON.stringify(error)}`, 'error');
+      const errorInfo = extractErrorInfo(error);
+      logDebug(`WebSocket error: ${errorInfo}`, 'error');
       notifyStateChange(CONNECTION_STATES.FAILED);
+      
+      // Check if the error might be related to security or CORS
+      if (errorInfo.includes('security') || errorInfo.includes('CORS') || 
+          errorInfo.includes('certificate') || errorInfo.includes('Mixed Content')) {
+        logDebug('This appears to be a security-related error. Check HTTPS/WSS configuration.', 'error');
+      }
+      
+      // Check for network errors
+      if (errorInfo.includes('network') || errorInfo.includes('connect') || 
+          errorInfo.includes('ECONNREFUSED') || errorInfo.includes('timeout')) {
+        logDebug('This appears to be a network connectivity issue. Check your internet connection and server status.', 'error');
+      }
+      
+      // Check if in Discord and possibly URL mapping issues
+      if (isInDiscordEnvironment()) {
+        logDebug('Since this is running in Discord, check that your URL mappings are correctly configured in the Discord Developer Portal.', 'warning');
+      }
     };
    
     wsInstance.onmessage = (event) => {
