@@ -68,8 +68,8 @@ document.addEventListener('DOMContentLoaded', async () => {
       logDebug('Running in Discord - applying URL mappings for WebSockets');
       // Use the patchUrlMappings API to route WebSocket requests through Discord's proxy
       await patchUrlMappings([
-        { prefix: '/ws', target: `${window.location.hostname}:${window.location.port}/ws` },
-        { prefix: '/api', target: `${window.location.hostname}:${window.location.port}/api` }
+        { prefix: '/ws', target: `brebiskingactivity-production.up.railway.app/ws` },
+        { prefix: '/api', target: `brebiskingactivity-production.up.railway.app/api` }
       ]);
       logDebug('URL mappings applied successfully');
     }
