@@ -66,7 +66,8 @@ document.addEventListener('DOMContentLoaded', async () => {
       // Use the patchUrlMappings API to route Ably requests through Discord's proxy
       await patchUrlMappings([
         { prefix: '/ably', target: 'realtime.ably.io' },
-        { prefix: '/ably-rest', target: 'rest.ably.io' }
+        { prefix: '/ably-rest', target: 'rest.ably.io' },
+        { prefix: '/ably-healthcheck', target: 'internet-up.ably-realtime.com' }
       ]);
       logDebug('URL mappings applied successfully');
     }

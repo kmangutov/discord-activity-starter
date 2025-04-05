@@ -296,7 +296,8 @@ export function getAblyInstance() {
       httpRequestTimeout: 10000,      // 10 seconds timeout for HTTP requests
       maxNetworkRetries: 5,            // Maximum network retries
       transportParams: {
-        internetUpUrl: null  // Skip internet-up check that causes XHR errors
+        // Use the mapped URL for health check instead of disabling it
+        internetUpUrl: isInDiscord ? '/ably-healthcheck/is-the-internet-up.txt' : null
       }
     };
     
