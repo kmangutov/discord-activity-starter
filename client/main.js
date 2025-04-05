@@ -36,7 +36,8 @@ const getWebSocketUrl = () => {
   return `wss://brebiskingactivity-production.up.railway.app/ws`; // `${protocol}//${window.location.host}/ws`;
 };
 
-const discordSdk = new DiscordSDK(import.meta.env.DISCORD_CLIENT_ID);
+// Initialize the SDK with the client ID
+const discordSdk = new DiscordSDK(import.meta.env.VITE_DISCORD_CLIENT_ID);
 
 // Initialize the app
 document.addEventListener('DOMContentLoaded', async () => {
