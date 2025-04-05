@@ -2,134 +2,130 @@
  * WebSocket utility functions for Discord Activity app
  */
 
-// Debug logger function
+// Debug logger function - simplified version
 export function logDebug(message, type = 'info') {
+  // Check if debug console exists
   const debugConsole = document.getElementById('debug-console-content');
-  if (!debugConsole) return;
+  if (!debugConsole) {
+    // When no debug console exists, just use regular console
+    if (type === 'error') console.error(message);
+    else if (type === 'warning') console.warn(message);
+    else console.log(message);
+    return;
+  }
  
-  const timestamp = new Date().toLocaleTimeString();
+  // Create simplified log entry
   const logEntry = document.createElement('div');
   logEntry.className = `log-entry log-${type}`;
-  logEntry.innerHTML = `<span class="log-time">[${timestamp}]</span> <span class="log-message">${message}</span>`;
+  logEntry.textContent = `[${new Date().toLocaleTimeString().split(' ')[0]}] ${message}`;
  
+  // Add to console
   debugConsole.appendChild(logEntry);
-  // Auto-scroll to bottom
   debugConsole.scrollTop = debugConsole.scrollHeight;
  
-  // Limit entries to prevent overflow
-  if (debugConsole.children.length > 50) {
+  // Limit entries (reduced from 50 to 30)
+  if (debugConsole.children.length > 30) {
     debugConsole.removeChild(debugConsole.children[0]);
   }
 }
 
-// Setup console overrides to log to debug console
+// Simplified console overrides
 export function setupConsoleOverrides() {
-  const originalConsoleLog = console.log;
-  const originalConsoleError = console.error;
-  const originalConsoleWarn = console.warn;
+  // Store original methods
+  const originalLog = console.log;
+  const originalError = console.error;
+  const originalWarn = console.warn;
 
+  // Simplified method to convert args to string
+  const argsToString = args => args.map(arg => 
+    typeof arg === 'object' ? JSON.stringify(arg, null, 0) : arg
+  ).join(' ');
+
+  // Override methods with more efficient versions
   console.log = function(...args) {
-    originalConsoleLog.apply(console, args);
-    logDebug(args.map(arg => typeof arg === 'object' ? JSON.stringify(arg) : arg).join(' '));
+    originalLog.apply(console, args);
+    logDebug(argsToString(args));
   };
 
   console.error = function(...args) {
-    originalConsoleError.apply(console, args);
-    logDebug(args.map(arg => typeof arg === 'object' ? JSON.stringify(arg) : arg).join(' '), 'error');
+    originalError.apply(console, args);
+    logDebug(argsToString(args), 'error');
   };
 
   console.warn = function(...args) {
-    originalConsoleWarn.apply(console, args);
-    logDebug(args.map(arg => typeof arg === 'object' ? JSON.stringify(arg) : arg).join(' '), 'warning');
+    originalWarn.apply(console, args);
+    logDebug(argsToString(args), 'warning');
   };
 }
 
-// Render participants in the UI
+// Simplified participant rendering
 export function renderParticipants(participants, containerId = 'participants-list') {
-  const participantsList = document.getElementById(containerId);
-  if (!participantsList) return;
+  const list = document.getElementById(containerId);
+  if (!list || !Array.isArray(participants)) return;
  
-  participantsList.innerHTML = '';
- 
-  // Guard against non-array participants
-  if (!Array.isArray(participants)) {
-    logDebug('Participants is not an array in renderParticipants', 'error');
-    return;
-  }
+  list.innerHTML = '';
  
   if (participants.length === 0) {
-    participantsList.innerHTML = '<div class="no-participants">No participants found</div>';
+    list.innerHTML = '<div class="no-participants">No participants found</div>';
     return;
   }
  
-  participants.forEach(user => {
+  for (const user of participants) {
+    if (!user || typeof user !== 'object') continue;
+    
+    // Simplified avatar logic
+    let avatarSrc;
     try {
-      // Guard against invalid user objects
-      if (!user || typeof user !== 'object') {
-        logDebug(`Invalid user object: ${JSON.stringify(user)}`, 'warning');
-        return;
-      }
-     
-      // Create avatar URL
-      let avatarSrc = '';
-      if (user.avatar) {
-        avatarSrc = `https://cdn.discordapp.com/avatars/${user.id}/${user.avatar}.png?size=256`;
-      } else {
-        // Safely handle potential BigInt conversion issues
-        try {
-          const defaultAvatarIndex = Number(BigInt(user.id) >> 22n % 6n);
-          avatarSrc = `https://cdn.discordapp.com/embed/avatars/${defaultAvatarIndex}.png`;
-        } catch (error) {
-          // Fallback to avatar 0 if we can't calculate
-          avatarSrc = `https://cdn.discordapp.com/embed/avatars/0.png`;
-          logDebug(`Avatar calculation error: ${error.message}`, 'warning');
-        }
-      }
-     
-      // Create username with fallbacks
-      const username = user.global_name || user.username ||
-                       (user.user ? (user.user.global_name || user.user.username) : 'Unknown User');
-     
-      // Create participant element
-      const participantElement = document.createElement('div');
-      participantElement.className = 'participant-item';
-      participantElement.innerHTML = `
-        <img src="${avatarSrc}" alt="Avatar" class="participant-avatar">
-        <span class="participant-name">${username}</span>
-      `;
-     
-      participantsList.appendChild(participantElement);
+      avatarSrc = user.avatar
+        ? `https://cdn.discordapp.com/avatars/${user.id}/${user.avatar}.png?size=256`
+        : `https://cdn.discordapp.com/embed/avatars/${Number(BigInt(user.id || '0') % 6n)}.png`;
     } catch (error) {
-      logDebug(`Error rendering participant: ${error.message}`, 'error');
+      avatarSrc = 'https://cdn.discordapp.com/embed/avatars/0.png';
     }
-  });
+    
+    // Get username
+    const username = user.global_name || user.username || 
+                    (user.user?.global_name || user.user?.username) || 'Unknown User';
+    
+    // Create participant element
+    const el = document.createElement('div');
+    el.className = 'participant-item';
+    el.innerHTML = `
+      <img src="${avatarSrc}" alt="Avatar" class="participant-avatar">
+      <span class="participant-name">${username}</span>
+    `;
+    
+    list.appendChild(el);
+  }
 }
 
-// Setup debug console toggle
+// Simplified debug console
 export function setupDebugConsole() {
   const toggleButton = document.getElementById('toggle-debug');
   if (!toggleButton) return;
  
   toggleButton.addEventListener('click', () => {
     const debugConsole = document.getElementById('debug-console');
-    debugConsole.classList.toggle('minimized');
-   
-    toggleButton.textContent = debugConsole.classList.contains('minimized') ? '□' : '_';
+    if (debugConsole) {
+      debugConsole.classList.toggle('minimized');
+      toggleButton.textContent = debugConsole.classList.contains('minimized') ? '□' : '_';
+    }
   });
  
-  // Initial log
-  logDebug('Debug console initialized');
+  logDebug('Debug console ready');
 }
 
-// Create and add debug console to the DOM
+// Simplified debug console creation
 export function createDebugConsole(container) {
+  if (!container) return;
+  
   const debugConsole = document.createElement('div');
   debugConsole.id = 'debug-console';
-  debugConsole.className = 'debug-console';
+  debugConsole.className = 'debug-console minimized'; // Start minimized
   debugConsole.innerHTML = `
     <div class="debug-header">
-      <span>Debug Console</span>
-      <button id="toggle-debug" class="toggle-debug">_</button>
+      <span>Debug</span>
+      <button id="toggle-debug" class="toggle-debug">□</button>
     </div>
     <div id="debug-console-content" class="debug-console-content"></div>
   `;
@@ -138,7 +134,7 @@ export function createDebugConsole(container) {
   setupDebugConsole();
 }
 
-// Generate a random color
+// Generate a random color - moved to top as shared utility
 export function getRandomColor() {
   const colors = [
     '#FF5733', // Red
@@ -279,52 +275,13 @@ function extractErrorInfo(error) {
       return JSON.stringify(enhancedInfo);
     }
     
-    // Try to get standard error properties
-    const errorProps = ["message", "name", "code", "type", "status", "statusText", "cause"];
-    const extractedInfo = {};
-    
-    // Copy enumerable and non-enumerable properties
-    errorProps.forEach(prop => {
-      if (error[prop] !== undefined) {
-        extractedInfo[prop] = error[prop];
-      }
-    });
-    
-    // Add stack if available but trimmed
-    if (error.stack) {
-      const stackLines = error.stack.split('\n');
-      extractedInfo.stack = stackLines.length > 3 ? 
-        stackLines.slice(0, 3).join('\n') + '...' : 
-        error.stack;
+    // Simple error extraction - just get the message
+    if (error && error.message) {
+      return error.message;
     }
     
-    // If we have no properties but it's an object with a toString method
-    if (Object.keys(extractedInfo).length === 0 && typeof error === 'object' && error !== null) {
-      // For Event objects, try to get more info
-      if (error instanceof Event) {
-        extractedInfo.type = error.type;
-        extractedInfo.target = error.target ? 
-          (error.target.url || error.target.constructor.name) : 
-          'unknown';
-        extractedInfo.isTrusted = error.isTrusted;
-        
-        // For WebSocket specific errors
-        if (error.target instanceof WebSocket) {
-          extractedInfo.readyState = ['CONNECTING', 'OPEN', 'CLOSING', 'CLOSED'][error.target.readyState];
-          extractedInfo.url = error.target.url;
-          
-          // Try to extract network info
-          if (window.navigator) {
-            extractedInfo.online = navigator.onLine;
-          }
-        }
-      } else {
-        // Last resort - use toString()
-        return error.toString();
-      }
-    }
-    
-    return JSON.stringify(extractedInfo);
+    // If nothing else works, convert to string
+    return String(error);
   } catch (e) {
     // If all else fails, return a basic message
     return `Error: ${error && error.message ? error.message : 'Unknown error'}`;
@@ -445,39 +402,18 @@ export function getWebSocketInstance() {
       const wasClean = event.code === 1000;
       logDebug(`WebSocket closed: ${event.code} - ${event.reason}`, wasClean ? 'info' : 'warning');
       
-      // Log more details about the closure
+      // Log more details about the closure if not clean
       if (!wasClean) {
-        logDebug(`Abnormal closure details: code=${event.code}, reason="${event.reason || 'none'}", wasClean=${wasClean}`, 'warning');
-        
-        // Interpret common close codes
+        // Common close codes and their meaning
         const closeCodeMeanings = {
-          1001: "Endpoint going away (server shutdown)",
-          1002: "Protocol error",
-          1003: "Unsupported data",
-          1005: "No status code (abnormal)",
-          1006: "Abnormal closure (connection failed)",
-          1007: "Invalid frame payload data",
-          1008: "Policy violation",
-          1009: "Message too big",
-          1010: "Extension negotiation failed",
-          1011: "Unexpected server error",
+          1006: "Connection closed abnormally",
+          1011: "Server error",
           1012: "Service restart",
-          1013: "Try again later",
-          1014: "Bad gateway",
-          1015: "TLS handshake failure"
+          1013: "Try again later"
         };
         
         const explanation = closeCodeMeanings[event.code] || "Unknown reason";
-        logDebug(`Close code explanation: ${explanation}`, 'warning');
-        
-        if (event.code === 1006) {
-          logDebug('Code 1006 typically indicates a network issue or CORS problem', 'warning');
-          if (isInDiscordEnvironment()) {
-            logDebug('In Discord: check URL mappings in Developer Portal', 'warning');
-          } else {
-            logDebug('Check that server is running and WebSocket URL is correct', 'warning');
-          }
-        }
+        logDebug(`Close reason: ${explanation}`, 'warning');
       }
       
       notifyStateChange(CONNECTION_STATES.DISCONNECTED);
@@ -489,27 +425,11 @@ export function getWebSocketInstance() {
     };
    
     wsInstance.onerror = (error) => {
-      const errorInfo = extractErrorInfo(error);
-      logDebug(`WebSocket error: ${errorInfo}`, 'error');
+      logDebug(`WebSocket error: ${extractErrorInfo(error)}`, 'error');
       notifyStateChange(CONNECTION_STATES.FAILED);
       
-      // Check if the error might be related to security or CORS
-      if (errorInfo.includes('security') || errorInfo.includes('CORS') || 
-          errorInfo.includes('certificate') || errorInfo.includes('Mixed Content')) {
-        logDebug('This appears to be a security-related error. Check HTTPS/WSS configuration.', 'error');
-      }
-      
-      // Check for network errors
-      if (errorInfo.includes('network') || errorInfo.includes('connect') || 
-          errorInfo.includes('ECONNREFUSED') || errorInfo.includes('timeout')) {
-        logDebug('This appears to be a network connectivity issue. Check your internet connection and server status.', 'error');
-      }
-      
-      // Check if in Discord and possibly URL mapping issues
-      if (isInDiscordEnvironment()) {
-        logDebug('Since this is running in Discord, check that your URL mappings are correctly configured in the Discord Developer Portal.', 'warning');
-        logDebug('The URL mapping should be: "/" → "brebiskingactivity-production.up.railway.app" (no protocol, no path)', 'warning');
-      }
+      // Log URL mapping hint for Discord
+      logDebug('Check that your URL mappings are correctly configured in the Discord Developer Portal.', 'warning');
     };
    
     wsInstance.onmessage = (event) => {
@@ -534,14 +454,7 @@ export function getWebSocketInstance() {
    
     return wsInstance;
   } catch (error) {
-    const errorDetails = extractErrorInfo(error);
-    logDebug(`Failed to initialize WebSocket: ${errorDetails}`, 'error');
-    logDebug(`URL attempted: ${finalWsUrl}`, 'error');
-    
-    if (isInDiscordEnvironment()) {
-      logDebug('In Discord, WebSocket URL should be "/ws" and URL mappings must be configured correctly', 'warning');
-    }
-    
+    logDebug(`Failed to initialize WebSocket: ${error.message}`, 'error');
     notifyStateChange(CONNECTION_STATES.FAILED);
     throw error;
   }
@@ -578,7 +491,7 @@ function attemptReconnect() {
   }, delay);
 }
 
-// WebSocket Channel Class
+// WebSocket Channel Class - Streamlined version
 class WebSocketChannel {
   constructor(channelId) {
     this.name = channelId;
@@ -590,11 +503,19 @@ class WebSocketChannel {
     // Subscribe to channel on server
     const ws = getWebSocketInstance();
     if (ws.readyState === WebSocket.OPEN) {
+      this.sendSubscription();
+    }
+  }
+  
+  // Send subscription to server
+  sendSubscription() {
+    const ws = getWebSocketInstance();
+    if (ws.readyState === WebSocket.OPEN) {
       ws.send(JSON.stringify({
         type: 'subscribe',
-        channel: channelId
+        channel: this.name
       }));
-      logDebug(`Subscribed to channel: ${channelId}`);
+      logDebug(`Subscribed to channel: ${this.name}`);
     }
   }
  
@@ -605,8 +526,7 @@ class WebSocketChannel {
     }
    
     this.eventHandlers.get(eventName).add(callback);
-    logDebug(`Added subscription to event '${eventName}' on channel '${this.name}'`);
-   
+    logDebug(`Subscribed to '${eventName}' on channel '${this.name}'`);
     return Promise.resolve();
   }
  
@@ -619,8 +539,6 @@ class WebSocketChannel {
     } else {
       this.eventHandlers.delete(eventName);
     }
-   
-    logDebug(`Removed subscription to event '${eventName}' on channel '${this.name}'`);
   }
  
   // Publish event to this channel
@@ -628,7 +546,6 @@ class WebSocketChannel {
     const ws = getWebSocketInstance();
    
     if (ws.readyState !== WebSocket.OPEN) {
-      logDebug(`Cannot publish - WebSocket not connected`, 'error');
       return Promise.reject(new Error('WebSocket not connected'));
     }
    
@@ -639,8 +556,6 @@ class WebSocketChannel {
         event: eventName,
         data: data
       }));
-     
-      logDebug(`Published '${eventName}' to channel '${this.name}'`);
       return Promise.resolve();
     } catch (error) {
       logDebug(`Error publishing to channel: ${error.message}`, 'error');
@@ -654,29 +569,31 @@ class WebSocketChannel {
    
     this.eventHandlers.get(eventName).forEach(callback => {
       try {
-        callback({ data }); // Format to match expected message format
+        callback({ data });
       } catch (error) {
-        logDebug(`Error in event handler for '${eventName}': ${error.message}`, 'error');
+        logDebug(`Error in event handler: ${error.message}`, 'error');
       }
     });
   }
 }
 
-// Get WebSocket channel
+// Get WebSocket channel - simplified
 export function getWebSocketChannel(channelId) {
-  try {
-    // Check if channel already exists
-    if (wsChannels[channelId]) {
-      return wsChannels[channelId];
-    }
-    
-    // Otherwise create new channel
-    logDebug(`Creating new WebSocket channel: ${channelId}`);
-    return new WebSocketChannel(channelId);
-  } catch (error) {
-    logDebug(`Failed to get WebSocket channel ${channelId}: ${error.message}`, 'error');
-    throw error;
-  }
+  return wsChannels[channelId] || new WebSocketChannel(channelId);
+}
+
+// Simplified subscribe to channel
+export async function subscribeToChannel(channel, eventName, callback) {
+  if (!channel) return false;
+  await channel.subscribe(eventName, callback);
+  return true;
+}
+
+// Simplified publish to channel
+export async function publishToChannel(channel, eventName, data) {
+  if (!channel) return false;
+  await channel.publish(eventName, data);
+  return true;
 }
 
 // Monitor network for WebSocket connectivity
@@ -696,33 +613,6 @@ export function setupXHRErrorMonitoring() {
     // Try to reconnect WebSocket
     reconnectWebSocket();
   });
-}
-
-// Subscribe to a WebSocket channel with error handling
-export async function subscribeToChannel(channel, eventName, callback) {
-  try {
-    logDebug(`Subscribing to event '${eventName}' on channel '${channel.name}'`);
-    await channel.subscribe(eventName, (message) => {
-      logDebug(`Received '${eventName}' message: ${JSON.stringify(message.data)}`);
-      callback(message);
-    });
-    return true;
-  } catch (error) {
-    logDebug(`Failed to subscribe to ${eventName} on ${channel.name}: ${error.message}`, 'error');
-    return false;
-  }
-}
-
-// Publish to a WebSocket channel with error handling
-export async function publishToChannel(channel, eventName, data) {
-  try {
-    logDebug(`Publishing '${eventName}' message: ${JSON.stringify(data)}`);
-    await channel.publish(eventName, data);
-    return true;
-  } catch (error) {
-    logDebug(`Failed to publish to ${eventName} on ${channel.name}: ${error.message}`, 'error');
-    return false;
-  }
 }
 
 // Close WebSocket connection

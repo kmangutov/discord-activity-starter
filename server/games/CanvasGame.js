@@ -2,27 +2,31 @@
  * Example game implementation with a simple shared canvas
  */
 
-import { Room } from './rooms.js';
+import { GameInterface } from './GameInterface.js';
+import { getRandomColor } from '../utils.js';
 
 /**
- * CanvasGame extends the base Room with canvas-specific functionality
+ * CanvasGame extends the base GameInterface with canvas-specific functionality
  */
-class CanvasGame extends Room {
-  constructor(instanceId) {
-    super(instanceId);
+class CanvasGame extends GameInterface {
+  // Static properties for game registry
+  static id = 'canvas';
+  static name = 'Canvas Game';
+  static description = 'A collaborative drawing canvas';
+  static minPlayers = 1;
+  static maxPlayers = 8;
+  static thumbnail = '/thumbnails/canvas.png';
+  
+  constructor(instanceId, activityId = null) {
+    super(instanceId, activityId);
+    
     // Initialize with empty state for the canvas
     this.state = {
+      ...this.state,
       circles: [], // Array of {x, y, color, radius, userId}
-      lastUpdate: Date.now()
     };
-  }
-
-  onJoin(socket, userId) {
-    // Send the current state to the new participant
-    socket.send(JSON.stringify({
-      type: 'state_sync',
-      state: this.state
-    }));
+    
+    console.log(`CanvasGame instance created: ${instanceId}, activity: ${activityId || 'none'}`);
   }
 
   onMessage(socket, messageData) {
@@ -42,11 +46,6 @@ class CanvasGame extends Room {
     }
   }
 
-  onLeave(socket, userId) {
-    // Optional: We could mark this user's circles as "orphaned"
-    // or give them a different appearance
-  }
-
   addCircle(userId, circleData) {
     const { x, y, color, radius } = circleData;
     
@@ -59,7 +58,7 @@ class CanvasGame extends Room {
     const circle = {
       x,
       y,
-      color: color || this.getRandomColor(),
+      color: color || getRandomColor(),
       radius: radius || 20,
       userId,
       timestamp: Date.now()
@@ -87,18 +86,6 @@ class CanvasGame extends Room {
       clearedBy: userId,
       timestamp: this.state.lastUpdate
     });
-  }
-
-  getRandomColor() {
-    const colors = [
-      '#FF5733', // Red
-      '#33FF57', // Green
-      '#3357FF', // Blue
-      '#FF33F5', // Pink
-      '#F5FF33', // Yellow
-      '#33FFF5'  // Cyan
-    ];
-    return colors[Math.floor(Math.random() * colors.length)];
   }
 }
 

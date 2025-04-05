@@ -1,6 +1,6 @@
 import { DiscordSDK, Events, patchUrlMappings } from "@discord/embedded-app-sdk";
-import GameCanvas from './GameCanvas.js';
-import DotGame from './DotGame.js';
+import CanvasGameFrontend from './game_frontends/CanvasGameFrontend.js';
+import DotGameFrontend from './game_frontends/DotGameFrontend.js';
 import rocketLogo from '/rocket.png';
 import { 
   logDebug, 
@@ -477,7 +477,7 @@ function startGame(gameId) {
   if (gameId === 'canvas') {
     try {
       // Create the GameCanvas instance
-      currentGame = new GameCanvas(
+      currentGame = new CanvasGameFrontend(
         gameContainer, 
         discordSdk.instanceId, 
         userId, 
@@ -490,7 +490,7 @@ function startGame(gameId) {
   } else if (gameId === 'dotgame') {
     try {
       // Initialize the dot game using our new DotGame class
-      currentGame = new DotGame(
+      currentGame = new DotGameFrontend(
         gameContainer,
         discordSdk.instanceId,
         userId,

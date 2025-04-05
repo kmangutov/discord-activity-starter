@@ -1,3 +1,8 @@
+/**
+ * Discord Activities API server
+ * Handles API endpoints and WebSocket connections for games
+ */
+
 import express from "express";
 import dotenv from "dotenv";
 import fetch from "node-fetch";
@@ -5,11 +10,19 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import http from 'http';
 import { WebSocketServer } from 'ws';
-import { getOrCreateRoom, leaveRoom, getAvailableGames } from './rooms.js';
-import { CanvasGame } from './game-example.js';
+import { getOrCreateRoom, leaveRoom } from './rooms.js';
+import { registerGame, getRegisteredGames, getGameInstance } from '../shared/game_registry.js';
+
+// Import game implementations
+import { CanvasGame } from './games/CanvasGame.js';
 import { DotGame } from './games/DotGame.js';
 
+// Config
 dotenv.config({ path: "../.env" });
+
+// Register available games
+registerGame(CanvasGame);
+registerGame(DotGame);
 
 const app = express();
 const port = process.env.PORT || 3001;
@@ -59,7 +72,7 @@ wss.on('connection', (ws, req) => {
       
       // Handle initial connection message with instanceId
       if (data.type === 'join_room') {
-        const { instanceId, userId, gameType = 'lobby' } = data;
+        const { instanceId, userId, gameType = 'lobby', activityId } = data;
         
         if (!instanceId || !userId) {
           ws.send(JSON.stringify({ 
@@ -69,31 +82,36 @@ wss.on('connection', (ws, req) => {
           return;
         }
         
-        // Get or create the appropriate room
-        let room;
-        if (gameType === 'canvas') {
-          // Create a canvas game room if it doesn't exist
-          if (!getOrCreateRoom(instanceId)) {
-            room = new CanvasGame(instanceId);
-          } else {
-            room = getOrCreateRoom(instanceId);
+        try {
+          // Get the room for this instance
+          let room = getOrCreateRoom(instanceId);
+          
+          // If we have a specific game type and the room is a basic room,
+          // try to create a game-specific room
+          if (gameType !== 'lobby' && room.constructor.name === 'Room') {
+            // Create a game instance using the registry
+            const gameInstance = getGameInstance(gameType, instanceId, activityId);
+            
+            if (gameInstance) {
+              // Replace the basic room with a game-specific one
+              room = getOrCreateRoom(instanceId, null, gameInstance);
+              console.log(`Created ${gameType} instance for room ${instanceId}`);
+            } else {
+              console.warn(`Failed to create game instance for ${gameType}, using default room`);
+            }
           }
-        } else if (gameType === 'dotgame') {
-          // Create a dot game room if it doesn't exist
-          if (!getOrCreateRoom(instanceId)) {
-            room = new DotGame(instanceId);
-          } else {
-            room = getOrCreateRoom(instanceId);
-          }
-        } else {
-          // Default to lobby
-          room = getOrCreateRoom(instanceId, gameType);
+          
+          // Add the participant to the room
+          room.addParticipant(ws, userId);
+          
+          console.log(`User ${userId} joined room ${instanceId} (${gameType})`);
+        } catch (error) {
+          console.error('Error joining room:', error);
+          ws.send(JSON.stringify({ 
+            type: 'error', 
+            message: 'Failed to join room: ' + error.message 
+          }));
         }
-        
-        // Add the participant to the room
-        room.addParticipant(ws, userId);
-        
-        console.log(`User ${userId} joined room ${instanceId} (${gameType})`);
       } 
       // Handle other message types in the game room
       else if (ws.instanceId) {
@@ -148,7 +166,17 @@ wss.on('connection', (ws, req) => {
 
 // API to get available games
 app.get('/api/games', (req, res) => {
-  res.json(getAvailableGames());
+  // Convert from game registry format to API format
+  const games = getRegisteredGames().map(game => ({
+    id: game.id,
+    name: game.name,
+    description: game.description,
+    minPlayers: game.minPlayers || 1,
+    maxPlayers: game.maxPlayers || 10,
+    thumbnail: game.thumbnail || null
+  }));
+  
+  res.json({ games });
 });
 
 app.post("/api/token", async (req, res) => {
@@ -184,4 +212,5 @@ app.get('*', (req, res) => {
 // Use the HTTP server instead of the Express app
 server.listen(port, () => {
   console.log(`Server listening on port ${port}`);
+  console.log(`Available games: ${getRegisteredGames().map(g => g.name).join(', ')}`);
 });

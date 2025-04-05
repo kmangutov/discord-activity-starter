@@ -2,25 +2,20 @@
  * DotGame.js - Client-side dot visualization component
  * A simple multiplayer dot visualization using WebSockets for real-time communication
  */
+import GameInterface from './GameInterface.js';
 import { 
   logDebug, 
   getRandomColor, 
-  getWebSocketChannel, 
   subscribeToChannel, 
-  publishToChannel, 
-  closeWebSocketConnection 
-} from './utils-websocket.js';
+  publishToChannel 
+} from '../utils-websocket.js';
 
-class DotGame {
+class DotGameFrontend extends GameInterface {
   constructor(container, instanceId, userId, onLeaveCallback) {
-    this.container = container;
-    this.instanceId = instanceId;
-    this.userId = userId;
-    this.onLeaveCallback = onLeaveCallback;
-    this.channel = null;
+    super(container, instanceId, userId, onLeaveCallback);
+    
     this.dots = new Map();
     this.userColor = getRandomColor();
-    this.isConnected = false;
     
     // Create UI components
     this.createUI();
@@ -30,6 +25,13 @@ class DotGame {
     
     // Log important game initialization info
     logDebug(`DotGame initialized for user: ${userId} in instance: ${instanceId}`);
+  }
+  
+  /**
+   * Return the unique game ID
+   */
+  getGameId() {
+    return 'dotgame';
   }
   
   createUI() {
@@ -59,39 +61,13 @@ class DotGame {
     this.dotDisplay.style.margin = '0 auto';
     
     // Add leave button functionality
-    this.container.querySelector('#leave-dot-game').addEventListener('click', this.handleLeaveGame.bind(this));
+    this.container.querySelector('#leave-dot-game').addEventListener('click', () => this.handleLeaveGame());
     
     // Handle click on the dot display to move your dot
     this.dotDisplay.addEventListener('click', this.handleDisplayClick.bind(this));
     
     // Set initial status
     this.setStatus('Connecting to dot game...');
-  }
-  
-  async connectWebSocket() {
-    try {
-      this.setStatus('Connecting to WebSocket...');
-      
-      // Create channel name from instanceId to group users in same Discord activity
-      const channelName = `dotgame-${this.instanceId}`;
-      this.channel = getWebSocketChannel(channelName);
-      
-      // Subscribe to various event types
-      await this.setupSubscriptions();
-      
-      // Announce joining and request current state
-      this.sendJoinMessage();
-      
-      // Send initial position
-      this.sendPosition(Math.random() * 500, Math.random() * 300);
-      
-      this.isConnected = true;
-      this.setStatus('Connected to dot game');
-    } catch (error) {
-      logDebug(`Failed to connect to WebSocket: ${error.message}`, 'error');
-      this.setStatus(`Connection error: ${error.message}`);
-      this.showRetryButton();
-    }
   }
   
   async setupSubscriptions() {
@@ -158,28 +134,6 @@ class DotGame {
     });
   }
   
-  sendJoinMessage() {
-    publishToChannel(this.channel, 'user_joined', {
-      userId: this.userId,
-      timestamp: Date.now()
-    });
-    
-    // Request current state from other users
-    publishToChannel(this.channel, 'request_state', {
-      userId: this.userId,
-      timestamp: Date.now()
-    });
-  }
-  
-  sendLeaveMessage() {
-    if (this.channel && this.isConnected) {
-      publishToChannel(this.channel, 'user_left', {
-        userId: this.userId,
-        timestamp: Date.now()
-      });
-    }
-  }
-  
   sendPosition(x, y) {
     if (!this.channel || !this.isConnected) return;
     
@@ -198,101 +152,63 @@ class DotGame {
   }
   
   handleDisplayClick(event) {
+    // Don't process if not connected
+    if (!this.isConnected) {
+      this.setStatus('Not connected - cannot move dot');
+      return;
+    }
+    
+    // Get click coordinates relative to the display
     const rect = this.dotDisplay.getBoundingClientRect();
     const x = event.clientX - rect.left;
     const y = event.clientY - rect.top;
     
-    // Send new position via WebSocket
+    // Send the position update
     this.sendPosition(x, y);
   }
   
-  showRetryButton() {
-    // Add retry button
-    const retryButton = document.createElement('button');
-    retryButton.textContent = 'Retry Connection';
-    retryButton.className = 'canvas-button retry-button';
-    retryButton.style.marginTop = '10px';
-    retryButton.addEventListener('click', () => {
-      this.connectWebSocket();
-    });
-    
-    // Add to controls if it doesn't already have a retry button
-    const controls = this.container.querySelector('.dot-game-controls');
-    if (controls && !controls.querySelector('.retry-button')) {
-      controls.appendChild(retryButton);
-    }
-  }
-  
   updateDot(participantId, x, y, color) {
-    let dot;
+    let dot = this.dots.get(participantId);
     
-    if (this.dots.has(participantId)) {
-      // Update existing dot
-      dot = this.dots.get(participantId);
-    } else {
-      // Create new dot
+    // Create dot if it doesn't exist
+    if (!dot) {
       dot = document.createElement('div');
       dot.className = 'user-dot';
       dot.style.position = 'absolute';
       dot.style.width = '20px';
       dot.style.height = '20px';
       dot.style.borderRadius = '50%';
-      dot.style.transition = 'all 0.3s ease';
+      dot.style.transition = 'left 0.3s, top 0.3s';
       
-      // Add username tooltip
-      const tooltip = document.createElement('div');
-      tooltip.className = 'dot-tooltip';
-      tooltip.textContent = participantId;
-      tooltip.style.position = 'absolute';
-      tooltip.style.bottom = '25px';
-      tooltip.style.left = '50%';
-      tooltip.style.transform = 'translateX(-50%)';
-      tooltip.style.backgroundColor = 'rgba(0, 0, 0, 0.8)';
-      tooltip.style.color = 'white';
-      tooltip.style.padding = '3px 8px';
-      tooltip.style.borderRadius = '4px';
-      tooltip.style.fontSize = '12px';
-      tooltip.style.whiteSpace = 'nowrap';
-      tooltip.style.opacity = '0';
-      tooltip.style.transition = 'opacity 0.2s';
+      // Add a hover tooltip with participant ID
+      dot.title = `User: ${participantId}`;
       
-      dot.appendChild(tooltip);
-      
-      // Show tooltip on hover
-      dot.addEventListener('mouseenter', () => {
-        tooltip.style.opacity = '1';
-      });
-      
-      dot.addEventListener('mouseleave', () => {
-        tooltip.style.opacity = '0';
-      });
+      // Highlight current user's dot
+      if (participantId === this.userId) {
+        dot.style.border = '2px solid white';
+        dot.style.boxShadow = '0 0 10px white';
+        
+        // Also add an indicator telling this is you
+        const indicator = document.createElement('div');
+        indicator.textContent = 'YOU';
+        indicator.style.position = 'absolute';
+        indicator.style.bottom = '-20px';
+        indicator.style.left = '50%';
+        indicator.style.transform = 'translateX(-50%)';
+        indicator.style.color = 'white';
+        indicator.style.fontSize = '10px';
+        indicator.style.fontWeight = 'bold';
+        dot.appendChild(indicator);
+      }
       
       this.dotDisplay.appendChild(dot);
       this.dots.set(participantId, dot);
     }
     
-    // Update position and color
-    dot.style.backgroundColor = color || '#00ff00';
-    dot.style.left = `${x - 10}px`; // Center the dot
-    dot.style.top = `${y - 10}px`;
-    
-    // Highlight if it's the current user
-    if (participantId === this.userId) {
-      dot.style.border = '2px solid white';
-    }
-  }
-  
-  handleLeaveGame() {
-    // Send leave message
-    this.sendLeaveMessage();
-    
-    // Disconnect from WebSocket
-    closeWebSocketConnection();
-    
-    // Call the callback to return to the lobby
-    if (this.onLeaveCallback) {
-      this.onLeaveCallback();
-    }
+    // Update the dot's position and color
+    dot.style.backgroundColor = color || getRandomColor();
+    dot.style.left = `${x - 10}px`; // Adjust for dot size to center on cursor
+    dot.style.top = `${y - 10}px`;  // Adjust for dot size to center on cursor
   }
   
   setStatus(message) {
@@ -302,22 +218,18 @@ class DotGame {
   }
   
   destroy() {
-    // Send leave message and disconnect
-    this.sendLeaveMessage();
-    
-    // Close WebSocket connection
-    closeWebSocketConnection();
-    
-    // Remove event listeners
-    if (this.dotDisplay) {
-      this.dotDisplay.removeEventListener('click', this.handleDisplayClick);
+    // Remove all dots
+    for (const dot of this.dots.values()) {
+      if (dot.parentNode) {
+        dot.parentNode.removeChild(dot);
+      }
     }
     
-    const leaveButton = this.container.querySelector('#leave-dot-game');
-    if (leaveButton) {
-      leaveButton.removeEventListener('click', this.handleLeaveGame);
-    }
+    this.dots.clear();
+    
+    // Call parent destroy method to handle WebSocket cleanups
+    super.destroy();
   }
 }
 
-export default DotGame; 
+export default DotGameFrontend; 

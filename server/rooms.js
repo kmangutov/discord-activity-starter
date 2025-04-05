@@ -78,26 +78,26 @@ class Room {
 /**
  * Create or get a room for an instanceId
  * @param {string} instanceId - Discord Activity instance ID
- * @param {string} gameType - Game type identifier (e.g., 'lobby', 'canvas', etc.)
+ * @param {string} gameType - Game type identifier (optional)
+ * @param {Room} roomInstance - Existing room instance (optional)
  * @returns {Room} The room instance
  */
-function getOrCreateRoom(instanceId, gameType = 'lobby') {
-  if (!rooms.has(instanceId)) {
-    let room;
-    
-    // Import the right game handler based on gameType
-    if (gameType === 'lobby') {
-      room = new Room(instanceId);
-    } else {
-      // For other game types, the specific game class would be used
-      // This will be implemented when adding game modules
-      room = new Room(instanceId);
-    }
-    
-    rooms.set(instanceId, room);
+function getOrCreateRoom(instanceId, gameType = 'lobby', roomInstance = null) {
+  // If room instance is provided, store it
+  if (roomInstance) {
+    rooms.set(instanceId, roomInstance);
+    return roomInstance;
+  }
+
+  // Return existing room if it exists
+  if (rooms.has(instanceId)) {
+    return rooms.get(instanceId);
   }
   
-  return rooms.get(instanceId);
+  // Create a new basic room if no existing room and no instance provided
+  const room = new Room(instanceId);
+  rooms.set(instanceId, room);
+  return room;
 }
 
 /**
@@ -121,23 +121,8 @@ function leaveRoom(socket) {
   return false;
 }
 
-/**
- * Get available games
- * @returns {Array} List of available games with metadata
- */
-function getAvailableGames() {
-  // This would scan the games directory and return metadata
-  // For now, we'll return a hardcoded list
-  return [
-    { id: 'canvas', name: 'Simple Canvas', description: 'A collaborative drawing canvas' },
-    { id: 'dotgame', name: 'Dot Game', description: 'Simple multiplayer dot visualization' },
-    { id: 'lobby', name: 'Lobby', description: 'The default lobby' }
-  ];
-}
-
 export { 
   getOrCreateRoom, 
   leaveRoom, 
-  getAvailableGames, 
   Room 
 }; 

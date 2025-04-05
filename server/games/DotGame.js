@@ -3,25 +3,28 @@
  * Shows a colored dot for each participant that can be moved around
  */
 
-import { Room } from '../rooms.js';
+import { GameInterface } from './GameInterface.js';
+import { getRandomColor } from '../utils.js';
 
-class DotGame extends Room {
-  constructor(instanceId) {
-    super(instanceId);
+class DotGame extends GameInterface {
+  // Static properties for game registry
+  static id = 'dotgame';
+  static name = 'Dot Game';
+  static description = 'Simple multiplayer dot visualization';
+  static minPlayers = 1;
+  static maxPlayers = 10;
+  static thumbnail = '/thumbnails/dotgame.png';
+  
+  constructor(instanceId, activityId = null) {
+    super(instanceId, activityId);
     
     // Initialize state with positions map
     this.state = {
-      positions: {}, // Map of userId -> {x, y, color}
-      lastUpdate: Date.now()
+      ...this.state,  // Include base state from GameInterface
+      positions: {},  // Map of userId -> {x, y, color}
     };
-  }
-  
-  onJoin(socket, userId) {
-    // Send current state to the new participant
-    socket.send(JSON.stringify({
-      type: 'state_sync',
-      state: this.state
-    }));
+    
+    console.log(`DotGame instance created: ${instanceId}, activity: ${activityId || 'none'}`);
   }
   
   onMessage(socket, messageData) {
@@ -52,7 +55,7 @@ class DotGame extends Room {
     this.state.positions[userId] = {
       x: position.x,
       y: position.y,
-      color: position.color || this.getRandomColor()
+      color: position.color || getRandomColor()
     };
     
     this.state.lastUpdate = Date.now();
@@ -63,18 +66,6 @@ class DotGame extends Room {
       userId: userId,
       position: this.state.positions[userId]
     });
-  }
-  
-  getRandomColor() {
-    const colors = [
-      '#FF5733', // Red
-      '#33FF57', // Green
-      '#3357FF', // Blue
-      '#FF33F5', // Pink
-      '#F5FF33', // Yellow
-      '#33FFF5'  // Cyan
-    ];
-    return colors[Math.floor(Math.random() * colors.length)];
   }
 }
 
