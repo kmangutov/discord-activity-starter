@@ -194,6 +194,7 @@ button:focus-visible {
   max-height: calc(250px - 32px);
   scrollbar-width: thin;
   scrollbar-color: #4f545c #2f3136;
+  text-align: left;
 }
 
 .debug-console-content::-webkit-scrollbar {
