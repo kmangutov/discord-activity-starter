@@ -109,17 +109,65 @@ async function setupDiscordSdk() {
 // Fetch participants in the activity
 async function fetchParticipants() {
   try {
-    participants = await discordSdk.commands.getInstanceConnectedParticipants();
+    const response = await discordSdk.commands.getInstanceConnectedParticipants();
+    // Check what structure we're getting back
+    logDebug(`Participants response structure: ${JSON.stringify(response)}`);
+    
+    // Handle different response structures
+    if (Array.isArray(response)) {
+      participants = response;
+    } else if (response && typeof response === 'object') {
+      // If it's an object, try to find the participants array
+      // It might be in a property like 'users', 'participants', etc.
+      if (response.users) {
+        participants = response.users;
+      } else if (response.participants) {
+        participants = response.participants;
+      } else {
+        // Just log the keys we have
+        const keys = Object.keys(response);
+        logDebug(`Available keys in response: ${keys.join(', ')}`, 'warning');
+        participants = [];
+      }
+    } else {
+      // Fallback to empty array if we can't determine the structure
+      logDebug('Unable to parse participants response', 'error');
+      participants = [];
+    }
+    
     logDebug(`Fetched ${participants.length} participants`);
     renderParticipants();
   } catch (error) {
     logDebug(`Failed to fetch participants: ${error.message}`, 'error');
+    logDebug(`Error stack: ${error.stack}`, 'error');
+    participants = [];
+    renderParticipants();
   }
 }
 
 // Update participants when they change
 function updateParticipants(newParticipants) {
-  participants = newParticipants;
+  logDebug(`Participants update received: ${JSON.stringify(newParticipants)}`);
+  
+  // Similar handling as in fetchParticipants
+  if (Array.isArray(newParticipants)) {
+    participants = newParticipants;
+  } else if (newParticipants && typeof newParticipants === 'object') {
+    if (newParticipants.users) {
+      participants = newParticipants.users;
+    } else if (newParticipants.participants) {
+      participants = newParticipants.participants;
+    } else {
+      const keys = Object.keys(newParticipants);
+      logDebug(`Available keys in update: ${keys.join(', ')}`, 'warning');
+      // Don't update participants if we can't determine the structure
+      return;
+    }
+  } else {
+    logDebug('Unable to parse participants update', 'error');
+    return;
+  }
+  
   logDebug(`Participants updated: ${participants.length} users in activity`);
   renderParticipants();
 }
@@ -131,28 +179,57 @@ function renderParticipants() {
   
   participantsList.innerHTML = '';
   
+  // Guard against non-array participants
+  if (!Array.isArray(participants)) {
+    logDebug('Participants is not an array in renderParticipants', 'error');
+    return;
+  }
+  
+  if (participants.length === 0) {
+    participantsList.innerHTML = '<div class="no-participants">No participants found</div>';
+    return;
+  }
+  
   participants.forEach(user => {
-    // Create avatar URL
-    let avatarSrc = '';
-    if (user.avatar) {
-      avatarSrc = `https://cdn.discordapp.com/avatars/${user.id}/${user.avatar}.png?size=256`;
-    } else {
-      const defaultAvatarIndex = Number(BigInt(user.id) >> 22n % 6n);
-      avatarSrc = `https://cdn.discordapp.com/embed/avatars/${defaultAvatarIndex}.png`;
+    try {
+      // Guard against invalid user objects
+      if (!user || typeof user !== 'object') {
+        logDebug(`Invalid user object: ${JSON.stringify(user)}`, 'warning');
+        return;
+      }
+      
+      // Create avatar URL
+      let avatarSrc = '';
+      if (user.avatar) {
+        avatarSrc = `https://cdn.discordapp.com/avatars/${user.id}/${user.avatar}.png?size=256`;
+      } else {
+        // Safely handle potential BigInt conversion issues
+        try {
+          const defaultAvatarIndex = Number(BigInt(user.id) >> 22n % 6n);
+          avatarSrc = `https://cdn.discordapp.com/embed/avatars/${defaultAvatarIndex}.png`;
+        } catch (error) {
+          // Fallback to avatar 0 if we can't calculate
+          avatarSrc = `https://cdn.discordapp.com/embed/avatars/0.png`;
+          logDebug(`Avatar calculation error: ${error.message}`, 'warning');
+        }
+      }
+      
+      // Create username with fallbacks
+      const username = user.global_name || user.username || 
+                       (user.user ? (user.user.global_name || user.user.username) : 'Unknown User');
+      
+      // Create participant element
+      const participantElement = document.createElement('div');
+      participantElement.className = 'participant';
+      participantElement.innerHTML = `
+        <img src="${avatarSrc}" alt="Avatar" class="participant-avatar">
+        <span class="participant-name">${username}</span>
+      `;
+      
+      participantsList.appendChild(participantElement);
+    } catch (error) {
+      logDebug(`Error rendering participant: ${error.message}`, 'error');
     }
-    
-    // Create username
-    const username = user.global_name ?? `${user.username}#${user.discriminator}`;
-    
-    // Create participant element
-    const participantElement = document.createElement('div');
-    participantElement.className = 'participant';
-    participantElement.innerHTML = `
-      <img src="${avatarSrc}" alt="Avatar" class="participant-avatar">
-      <span class="participant-name">${username}</span>
-    `;
-    
-    participantsList.appendChild(participantElement);
   });
 }
 

@@ -122,6 +122,15 @@ button:focus-visible {
   font-weight: 500;
 }
 
+.no-participants {
+  padding: 12px;
+  background-color: rgba(79, 84, 92, 0.16);
+  border-radius: 8px;
+  color: #b9bbbe;
+  font-style: italic;
+  text-align: center;
+}
+
 /* Debug Console Styles */
 .debug-console {
   position: fixed;
