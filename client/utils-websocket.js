@@ -410,14 +410,22 @@ export function getWebSocketInstance() {
   }
  
   // Get WebSocket URL from environment
-  const wsUrl = getEnvVariable('WS_SERVER_URL', 'wss://railway-url/ws');
+  const wsUrl = getEnvVariable('WS_SERVER_URL', 'wss://brebiskingactivity-production.up.railway.app/ws');
  
   try {
     // Check if we're in Discord to use the mapped URLs
     const isInDiscord = isInDiscordEnvironment();
    
-    // Use different URL if in Discord environment
-    const finalWsUrl = isInDiscord ? '/ws' : wsUrl;
+    // Use different URL construction if in Discord environment
+    let finalWsUrl;
+    if (isInDiscord) {
+      // For Discord, use the current hostname with /ws path
+      // This works with Discord's URL mapping system
+      const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+      finalWsUrl = `${protocol}//${window.location.host}/ws`;
+    } else {
+      finalWsUrl = wsUrl;
+    }
    
     notifyStateChange(CONNECTION_STATES.CONNECTING);
     logDebug(`Connecting to WebSocket: ${finalWsUrl}`);
