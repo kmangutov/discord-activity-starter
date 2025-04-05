@@ -2,6 +2,9 @@
  * Utility functions for Discord Activity app
  */
 
+// Import Ably using ES modules instead of require
+import * as Ably from 'ably';
+
 // Debug logger function
 export function logDebug(message, type = 'info') {
   const debugConsole = document.getElementById('debug-console-content');
@@ -238,9 +241,14 @@ export function setupWebSocketLogging(socket, prefix = '') {
 
 // Check if environment variables are properly loaded
 export function getEnvVariable(key, fallback = null) {
-  // First try import.meta.env for Vite
+  // For Vite, use import.meta.env
   if (import.meta.env && import.meta.env[key]) {
     return import.meta.env[key];
+  }
+
+  // For Vite with define in vite.config.js, use process.env
+  if (typeof process !== 'undefined' && process.env && process.env[key]) {
+    return process.env[key];
   }
   
   // Try window.env for runtime injected env vars
@@ -248,13 +256,10 @@ export function getEnvVariable(key, fallback = null) {
     return window.env[key];
   }
   
-  // Try process.env for Node.js environment
-  if (typeof process !== 'undefined' && process.env && process.env[key]) {
-    return process.env[key];
-  }
+  // Log for debugging
+  console.log(`Using fallback value for ${key}`, fallback);
   
   // Return fallback value if not found
-  logDebug(`Environment variable ${key} not found, using fallback value`, 'warning');
   return fallback;
 }
 
@@ -267,7 +272,6 @@ export function getAblyInstance() {
     return ablyInstance;
   }
   
-  const Ably = require('ably');
   const apiKey = getEnvVariable('ABLY_API_KEY', 'wJCxmg.MM9QRw:YCEe19Xuz85-vFqXmcHwSHavTTDYAX542v7tiSCSR9o');
   
   logDebug(`Initializing Ably with API key: ${apiKey.split(':')[0]}...`);

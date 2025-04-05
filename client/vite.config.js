@@ -6,15 +6,20 @@ export default defineConfig(({ mode }) => {
   // Load env file based on `mode` in the project root
   // Set the third parameter to '' to load all env regardless of the `VITE_` prefix.
   const env = loadEnv(mode, path.resolve(process.cwd(), '..'), '');
+  const ablyApiKey = env.ABLY_API_KEY || 'wJCxmg.MM9QRw:YCEe19Xuz85-vFqXmcHwSHavTTDYAX542v7tiSCSR9o';
+  const discordClientId = env.VITE_DISCORD_CLIENT_ID || env.DISCORD_CLIENT_ID;
+
+  console.log('Using ABLY_API_KEY:', ablyApiKey.split(':')[0] + '...');
+  console.log('Using DISCORD_CLIENT_ID:', discordClientId);
 
   return {
-    // vite config
+    // Make environment variables available to the client
     define: {
-      // Make env variables available globally by prefixing them with process.env.
-      'process.env': {
-        ABLY_API_KEY: JSON.stringify(env.ABLY_API_KEY || 'wJCxmg.MM9QRw:YCEe19Xuz85-vFqXmcHwSHavTTDYAX542v7tiSCSR9o'),
-        DISCORD_CLIENT_ID: JSON.stringify(env.VITE_DISCORD_CLIENT_ID || env.DISCORD_CLIENT_ID),
-      }
+      'import.meta.env.ABLY_API_KEY': JSON.stringify(ablyApiKey),
+      'import.meta.env.DISCORD_CLIENT_ID': JSON.stringify(discordClientId),
+      // Also define process.env for compatibility
+      'process.env.ABLY_API_KEY': JSON.stringify(ablyApiKey),
+      'process.env.DISCORD_CLIENT_ID': JSON.stringify(discordClientId)
     },
     server: {
       port: 3000,

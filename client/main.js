@@ -6,7 +6,8 @@ import {
   logDebug, 
   setupConsoleOverrides, 
   renderParticipants, 
-  createDebugConsole 
+  createDebugConsole,
+  getAblyInstance
 } from './utils.js';
 import "./style.css";
 
@@ -29,7 +30,7 @@ const getWebSocketUrl = () => {
   return `${protocol}//${window.location.host}`;
 };
 
-const discordSdk = new DiscordSDK(import.meta.env.VITE_DISCORD_CLIENT_ID);
+const discordSdk = new DiscordSDK(import.meta.env.DISCORD_CLIENT_ID);
 
 // Initialize the app
 document.addEventListener('DOMContentLoaded', () => {
@@ -49,6 +50,19 @@ document.addEventListener('DOMContentLoaded', () => {
   // Log initial info
   logDebug('Application initialized');
   logDebug(`Discord instanceId: ${discordSdk.instanceId}`);
+  
+  // Initialize Ably early
+  try {
+    const ably = getAblyInstance();
+    logDebug('Ably initialized successfully');
+    
+    // Log Ably connection state
+    ably.connection.on('connected', () => {
+      logDebug('Ably connected!');
+    });
+  } catch (error) {
+    logDebug(`Failed to initialize Ably: ${error.message}`, 'error');
+  }
   
   setupDiscordSdk().then(() => {
     logDebug("Discord SDK is authenticated");
