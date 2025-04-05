@@ -246,6 +246,39 @@ function extractErrorInfo(error) {
       return extractErrorInfo(error.error);
     }
     
+    // Handle the simple {type:"error"} case
+    if (error && error.type === "error" && Object.keys(error).length === 1) {
+      // Enhanced error info for this specific case
+      let enhancedInfo = {
+        type: "error",
+        context: "WebSocket connection failed"
+      };
+      
+      // Try to get WebSocket details if available
+      if (error.target instanceof WebSocket) {
+        enhancedInfo.url = error.target.url;
+        enhancedInfo.readyState = ['CONNECTING', 'OPEN', 'CLOSING', 'CLOSED'][error.target.readyState];
+        
+        // Check for common issues based on the URL
+        const wsUrl = error.target.url;
+        if (wsUrl) {
+          if (window.location.protocol === 'https:' && wsUrl.startsWith('ws:')) {
+            enhancedInfo.mixedContent = "Mixed content: HTTPS page trying to connect to insecure WS endpoint";
+          }
+          
+          // Check if using Discord URL mapping correctly
+          if (isInDiscordEnvironment() && !wsUrl.endsWith('/ws')) {
+            enhancedInfo.mappingIssue = "Possible Discord URL mapping issue - URL should end with /ws";
+          }
+        }
+      }
+      
+      // Add navigator info for network troubleshooting
+      enhancedInfo.online = navigator.onLine;
+      
+      return JSON.stringify(enhancedInfo);
+    }
+    
     // Try to get standard error properties
     const errorProps = ["message", "name", "code", "type", "status", "statusText", "cause"];
     const extractedInfo = {};
@@ -279,6 +312,11 @@ function extractErrorInfo(error) {
         if (error.target instanceof WebSocket) {
           extractedInfo.readyState = ['CONNECTING', 'OPEN', 'CLOSING', 'CLOSED'][error.target.readyState];
           extractedInfo.url = error.target.url;
+          
+          // Try to extract network info
+          if (window.navigator) {
+            extractedInfo.online = navigator.onLine;
+          }
         }
       } else {
         // Last resort - use toString()
@@ -383,6 +421,7 @@ export function getWebSocketInstance() {
    
     notifyStateChange(CONNECTION_STATES.CONNECTING);
     logDebug(`Connecting to WebSocket: ${finalWsUrl}`);
+    logDebug(`Connection details: Discord environment=${isInDiscord}, Network online=${navigator.onLine}, Protocol=${window.location.protocol}`);
    
     // Create new WebSocket instance
     wsInstance = new WebSocket(finalWsUrl);
@@ -411,6 +450,42 @@ export function getWebSocketInstance() {
     wsInstance.onclose = (event) => {
       const wasClean = event.code === 1000;
       logDebug(`WebSocket closed: ${event.code} - ${event.reason}`, wasClean ? 'info' : 'warning');
+      
+      // Log more details about the closure
+      if (!wasClean) {
+        logDebug(`Abnormal closure details: code=${event.code}, reason="${event.reason || 'none'}", wasClean=${wasClean}`, 'warning');
+        
+        // Interpret common close codes
+        const closeCodeMeanings = {
+          1001: "Endpoint going away (server shutdown)",
+          1002: "Protocol error",
+          1003: "Unsupported data",
+          1005: "No status code (abnormal)",
+          1006: "Abnormal closure (connection failed)",
+          1007: "Invalid frame payload data",
+          1008: "Policy violation",
+          1009: "Message too big",
+          1010: "Extension negotiation failed",
+          1011: "Unexpected server error",
+          1012: "Service restart",
+          1013: "Try again later",
+          1014: "Bad gateway",
+          1015: "TLS handshake failure"
+        };
+        
+        const explanation = closeCodeMeanings[event.code] || "Unknown reason";
+        logDebug(`Close code explanation: ${explanation}`, 'warning');
+        
+        if (event.code === 1006) {
+          logDebug('Code 1006 typically indicates a network issue or CORS problem', 'warning');
+          if (isInDiscordEnvironment()) {
+            logDebug('In Discord: check URL mappings in Developer Portal', 'warning');
+          } else {
+            logDebug('Check that server is running and WebSocket URL is correct', 'warning');
+          }
+        }
+      }
+      
       notifyStateChange(CONNECTION_STATES.DISCONNECTED);
      
       // Only attempt to reconnect if not cleanly closed
@@ -439,6 +514,7 @@ export function getWebSocketInstance() {
       // Check if in Discord and possibly URL mapping issues
       if (isInDiscordEnvironment()) {
         logDebug('Since this is running in Discord, check that your URL mappings are correctly configured in the Discord Developer Portal.', 'warning');
+        logDebug('The URL mapping should be: "/" → "brebiskingactivity-production.up.railway.app" (no protocol, no path)', 'warning');
       }
     };
    
@@ -464,7 +540,14 @@ export function getWebSocketInstance() {
    
     return wsInstance;
   } catch (error) {
-    logDebug(`Failed to initialize WebSocket: ${error.message}`, 'error');
+    const errorDetails = extractErrorInfo(error);
+    logDebug(`Failed to initialize WebSocket: ${errorDetails}`, 'error');
+    logDebug(`URL attempted: ${wsUrl}`, 'error');
+    
+    if (isInDiscordEnvironment()) {
+      logDebug('In Discord, WebSocket URL should be "/ws" and URL mappings must be configured correctly', 'warning');
+    }
+    
     notifyStateChange(CONNECTION_STATES.FAILED);
     throw error;
   }

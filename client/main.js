@@ -30,10 +30,17 @@ let availableGames = [];
 let appContainer;
 
 // Store WebSocket server URL for consistency
-// TODO: Use .env value
 const getWebSocketUrl = () => {
-  //const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-  return `wss://brebiskingactivity-production.up.railway.app/ws`; // `${protocol}//${window.location.host}/ws`;
+  const isDiscord = isInDiscordEnvironment();
+  if (isDiscord) {
+    // When in Discord, we use the URL mapping which should be just '/ws'
+    return '/ws';
+  } else {
+    // For direct access, use the full WebSocket URL from the env
+    const wsUrl = import.meta.env.WS_SERVER_URL || 'wss://brebiskingactivity-production.up.railway.app/ws';
+    logDebug(`Using WebSocket URL from environment: ${wsUrl}`);
+    return wsUrl;
+  }
 };
 
 // Initialize the SDK with the client ID
@@ -67,11 +74,11 @@ document.addEventListener('DOMContentLoaded', async () => {
     const isProd = isInDiscordEnvironment();
     
     if (isProd) {
-      logDebug('Running in Discord - applying URL mappings for WebSockets');
-      // Use the patchUrlMappings API to route WebSocket requests through Discord's proxy
+      logDebug('Running in Discord - applying URL mappings');
+      // Use the patchUrlMappings API to route requests through Discord's proxy
       await patchUrlMappings([
-        { prefix: '/ws', target: `brebiskingactivity-production.up.railway.app/ws` },
-        { prefix: '/api', target: `brebiskingactivity-production.up.railway.app/api` }
+        // Single root mapping that handles all paths including WebSockets
+        { prefix: '/', target: 'brebiskingactivity-production.up.railway.app' }
       ]);
       logDebug('URL mappings applied successfully');
     }

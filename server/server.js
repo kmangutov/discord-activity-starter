@@ -30,13 +30,31 @@ app.use(express.static(path.join(__dirname, '../client/dist')));
 // Create a WebSocket server
 const wss = new WebSocketServer({ server });
 
+// Log WebSocket server events
+wss.on('listening', () => {
+  console.log('WebSocket server is listening for connections');
+});
+
+wss.on('error', (error) => {
+  console.error('WebSocket server error:', error);
+});
+
 // WebSocket connection handler
-wss.on('connection', (ws) => {
-  console.log('WebSocket client connected');
+wss.on('connection', (ws, req) => {
+  console.log('WebSocket client connected from:', req.socket.remoteAddress);
+  console.log('Connection headers:', req.headers);
+  
+  // Add a ping interval to keep connections alive
+  const pingInterval = setInterval(() => {
+    if (ws.readyState === WebSocket.OPEN) {
+      ws.ping();
+    }
+  }, 30000); // Send ping every 30 seconds
   
   // Wait for the client to send instanceId and userId
   ws.on('message', (message) => {
     try {
+      console.log('WebSocket message received:', message.toString());
       const data = JSON.parse(message);
       
       // Handle initial connection message with instanceId
@@ -93,9 +111,35 @@ wss.on('connection', (ws) => {
     }
   });
   
+  // Handle WebSocket-specific errors
+  ws.on('error', (error) => {
+    console.error('WebSocket client error:', error);
+    
+    // Try to gracefully close the connection on error
+    try {
+      if (ws.readyState === WebSocket.OPEN) {
+        ws.close(1011, `Error: ${error.message}`);
+      }
+    } catch (closeError) {
+      console.error('Error while closing WebSocket:', closeError);
+    }
+    
+    // Clean up resources
+    clearInterval(pingInterval);
+    
+    // Handle room cleanup if needed
+    if (ws.instanceId) {
+      leaveRoom(ws);
+    }
+  });
+  
   // Handle disconnection
-  ws.on('close', () => {
-    console.log('WebSocket client disconnected');
+  ws.on('close', (code, reason) => {
+    console.log(`WebSocket client disconnected - Code: ${code}, Reason: ${reason || 'None provided'}`);
+    
+    // Clear the ping interval
+    clearInterval(pingInterval);
+    
     if (ws.instanceId) {
       leaveRoom(ws);
     }
