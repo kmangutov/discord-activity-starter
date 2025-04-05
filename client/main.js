@@ -8,7 +8,8 @@ import {
   renderParticipants, 
   createDebugConsole,
   getAblyInstance,
-  isInDiscordEnvironment
+  isInDiscordEnvironment,
+  setupXHRErrorMonitoring
 } from './utils.js';
 import "./style.css";
 
@@ -48,6 +49,9 @@ document.addEventListener('DOMContentLoaded', async () => {
   // Setup console overrides
   setupConsoleOverrides();
   
+  // Set up XHR error monitoring
+  setupXHRErrorMonitoring();
+  
   // Log initial info
   logDebug('Application initialized');
   logDebug(`Discord instanceId: ${discordSdk.instanceId}`);
@@ -72,15 +76,39 @@ document.addEventListener('DOMContentLoaded', async () => {
   
   // Initialize Ably early
   try {
+    logDebug('Initializing Ably connection...', 'info');
+    
+    // Log environment for troubleshooting
+    const envDetails = {
+      isInDiscord: isInDiscordEnvironment(),
+      clientId: discordSdk?.instanceId,
+      protocol: window.location.protocol,
+      host: window.location.host,
+      userAgent: navigator.userAgent
+    };
+    logDebug(`Environment details: ${JSON.stringify(envDetails)}`, 'info');
+    
     const ably = getAblyInstance();
     logDebug('Ably initialized successfully');
     
     // Log Ably connection state
     ably.connection.on('connected', () => {
       logDebug('Ably connected!');
+      
+      // Log connection details
+      const connDetails = {
+        id: ably.connection.id,
+        key: ably.connection.key,
+        recoveryKey: ably.connection.recoveryKey ? 'available' : 'not available',
+        state: ably.connection.state,
+        errorReason: ably.connection.errorReason ? 
+                     ably.connection.errorReason.message : 'none'
+      };
+      logDebug(`Connection details: ${JSON.stringify(connDetails)}`, 'info');
     });
   } catch (error) {
     logDebug(`Failed to initialize Ably: ${error.message}`, 'error');
+    logDebug(`Error stack: ${error.stack || 'No stack trace available'}`, 'error');
   }
   
   setupDiscordSdk().then(() => {

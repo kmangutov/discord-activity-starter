@@ -336,9 +336,38 @@ export function getAblyInstance() {
     ablyInstance.connection.on('error', (err) => {
       logDebug(`Ably error: ${err?.message || 'Unknown error'}`, 'error');
       
+      // Log detailed error information
+      const errorDetails = {
+        message: err?.message,
+        code: err?.code,
+        statusCode: err?.statusCode,
+        cause: err?.cause?.message,
+        state: ablyInstance.connection.state,
+        config: {
+          realtimeHost: config.realtimeHost,
+          restHost: config.restHost,
+          port: config.port,
+          tls: config.tls,
+          clientId: config.clientId,
+          echoMessages: config.echoMessages,
+          autoConnect: config.autoConnect,
+          disconnectedRetryTimeout: config.disconnectedRetryTimeout,
+          suspendedRetryTimeout: config.suspendedRetryTimeout,
+          httpRequestTimeout: config.httpRequestTimeout,
+          maxNetworkRetries: config.maxNetworkRetries
+        }
+      };
+      
+      logDebug(`Detailed Ably error: ${JSON.stringify(errorDetails)}`, 'error');
+      
       // Check for specific XHR error and handle accordingly
       if (err?.message?.includes('XHR') || err?.message?.includes('network')) {
         logDebug('Network issue detected - will attempt to reconnect', 'warning');
+        
+        // If in Discord, verify URL mappings are being used
+        if (isInDiscordEnvironment()) {
+          logDebug('Running in Discord - please check URL mappings in Developer Portal', 'warning');
+        }
       }
     });
     
@@ -426,4 +455,69 @@ export function reconnectAbly() {
     ablyInstance = null;
     return getAblyInstance();
   }
+}
+
+// Monitor XHR requests to catch and log Ably errors
+export function setupXHRErrorMonitoring() {
+  if (typeof window === 'undefined' || !window.XMLHttpRequest) return;
+  
+  // Store the original open method
+  const originalOpen = XMLHttpRequest.prototype.open;
+  
+  // Override the open method to track Ably requests
+  XMLHttpRequest.prototype.open = function(method, url, async, user, password) {
+    // Add additional event listeners for Ably requests
+    if (url && (url.includes('ably') || url.includes('/ably/'))) {
+      this.addEventListener('error', function(event) {
+        const requestInfo = {
+          method,
+          url,
+          async,
+          readyState: this.readyState,
+          status: this.status,
+          statusText: this.statusText,
+          responseType: this.responseType,
+          eventType: event.type,
+          timestamp: new Date().toISOString()
+        };
+        
+        logDebug(`XHR Error Detail: ${JSON.stringify(requestInfo)}`, 'error');
+        
+        // Check for CORS or network issues
+        if (this.status === 0) {
+          logDebug('Possible CORS issue or network failure', 'error');
+          if (isInDiscordEnvironment()) {
+            logDebug('In Discord environment - please check URL mappings', 'warning');
+          }
+        }
+      });
+      
+      this.addEventListener('load', function() {
+        if (this.status >= 400) {
+          const requestInfo = {
+            method,
+            url,
+            async,
+            readyState: this.readyState,
+            status: this.status,
+            statusText: this.statusText,
+            responseType: this.responseType,
+            timestamp: new Date().toISOString()
+          };
+          
+          logDebug(`Ably HTTP Error: ${JSON.stringify(requestInfo)}`, 'error');
+          try {
+            logDebug(`Response: ${this.responseText}`, 'error');
+          } catch (e) {
+            // Response might not be available
+          }
+        }
+      });
+    }
+    
+    // Call the original method
+    return originalOpen.apply(this, arguments);
+  };
+  
+  logDebug('XHR monitoring for Ably requests enabled', 'info');
 } 
