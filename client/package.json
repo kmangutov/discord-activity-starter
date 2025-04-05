@@ -12,7 +12,6 @@
     "vite": "^5.0.8"
   },
   "dependencies": {
-    "@discord/embedded-app-sdk": "^1.9.0",
-    "ably": "^2.6.5"
+    "@discord/embedded-app-sdk": "^1.9.0"
   }
 }

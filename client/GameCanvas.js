@@ -1,16 +1,16 @@
 /**
  * GameCanvas.js - Client-side canvas component
- * A simple collaborative canvas that can be controlled via Ably for real-time communication
+ * A simple collaborative canvas that can be controlled via WebSockets for real-time communication
  */
 import { 
   logDebug, 
   getRandomColor, 
-  getAblyChannel, 
+  getWebSocketChannel, 
   subscribeToChannel, 
   publishToChannel, 
-  closeAblyConnection,
-  reconnectAbly as reconnectAblyUtil
-} from './utils.js';
+  closeWebSocketConnection,
+  reconnectWebSocket
+} from './utils-websocket.js';
 
 class GameCanvas {
   constructor(container, instanceId, userId, onLeaveCallback) {
@@ -25,8 +25,8 @@ class GameCanvas {
     // Create UI components
     this.createUI();
     
-    // Connect to Ably
-    this.connectAbly();
+    // Connect to WebSocket
+    this.connectWebSocket();
   }
   
   createUI() {
@@ -74,13 +74,13 @@ class GameCanvas {
     this.setStatus('Initializing canvas...');
   }
   
-  async connectAbly() {
+  async connectWebSocket() {
     try {
-      this.setStatus('Connecting to Ably...');
+      this.setStatus('Connecting to WebSocket...');
       
       // Create channel name from instanceId to group users in same Discord activity
       const channelName = `canvas-${this.instanceId}`;
-      this.channel = getAblyChannel(channelName);
+      this.channel = getWebSocketChannel(channelName);
       
       // Subscribe to various event types
       await this.setupSubscriptions();
@@ -91,15 +91,15 @@ class GameCanvas {
       this.isConnected = true;
       this.setStatus('Connected to canvas game');
     } catch (error) {
-      logDebug(`Failed to connect to Ably: ${error.message}`, 'error');
+      logDebug(`Failed to connect to WebSocket: ${error.message}`, 'error');
       this.setStatus(`Connection error: ${error.message}`);
       this.showRetryButton();
       
       // Auto-retry once after 5 seconds
       setTimeout(() => {
         if (!this.isConnected) {
-          logDebug('Auto-retrying Ably connection...', 'info');
-          this.reconnectAbly();
+          logDebug('Auto-retrying WebSocket connection...', 'info');
+          this.reconnectWebSocket();
         }
       }, 5000);
     }
@@ -238,7 +238,7 @@ class GameCanvas {
     retryButton.addEventListener('click', () => {
       retryButton.textContent = 'Reconnecting...';
       retryButton.disabled = true;
-      this.reconnectAbly();
+      this.reconnectWebSocket();
       
       // Re-enable button after a delay
       setTimeout(() => {
@@ -254,15 +254,15 @@ class GameCanvas {
     }
   }
   
-  reconnectAbly() {
+  reconnectWebSocket() {
     this.setStatus('Attempting to reconnect...');
     
     try {
-      // Use the imported reconnectAbly from utils.js
-      reconnectAblyUtil();
+      // Use the imported reconnectWebSocket from utils-websocket.js
+      reconnectWebSocket();
       
       // Try to reconnect with a new channel
-      setTimeout(() => this.connectAbly(), 1000);
+      setTimeout(() => this.connectWebSocket(), 1000);
     } catch (error) {
       logDebug(`Error during reconnection: ${error.message}`, 'error');
       this.setStatus(`Reconnection failed: ${error.message}`);
@@ -273,8 +273,8 @@ class GameCanvas {
     // Send leave message
     this.sendLeaveMessage();
     
-    // Disconnect from Ably
-    closeAblyConnection();
+    // Disconnect from WebSocket
+    closeWebSocketConnection();
     
     // Call the callback to return to the lobby
     if (this.onLeaveCallback) {
@@ -311,8 +311,8 @@ class GameCanvas {
     // Send leave message
     this.sendLeaveMessage();
     
-    // Close Ably connection
-    closeAblyConnection();
+    // Close WebSocket connection
+    closeWebSocketConnection();
     
     // Remove event listeners
     if (this.canvas) {

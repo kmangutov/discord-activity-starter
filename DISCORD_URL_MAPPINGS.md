@@ -48,4 +48,16 @@ After setting up URL mappings, you can verify they're working by:
 1. Opening your activity in Discord
 2. Opening developer tools (Ctrl+Shift+I in the Discord client)
 3. Checking the Network tab for WebSocket connections to `/ws`
-4. Confirming there are no CORS errors in the Console tab 
+4. Confirming there are no CORS errors in the Console tab
+
+## Summary of Changes
+
+The application now uses native WebSockets instead of Ably for real-time communication:
+
+1. Removed all Ably dependencies and references
+2. Implemented a WebSocket connection manager with similar API to Ably for backwards compatibility
+3. Added channel-based communication over WebSockets
+4. Configured proper reconnection handling and error recovery
+5. Updated URL mappings for Discord to route WebSocket traffic
+
+This implementation is simpler, has fewer dependencies, and should be more reliable in the Discord environment. Railway hosting provides scalable WebSocket support out of the box. 

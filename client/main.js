@@ -7,10 +7,13 @@ import {
   setupConsoleOverrides, 
   renderParticipants, 
   createDebugConsole,
-  getAblyInstance,
+  getWebSocketInstance,
   isInDiscordEnvironment,
-  setupXHRErrorMonitoring
-} from './utils.js';
+  setupXHRErrorMonitoring,
+  getWebSocketChannel,
+  closeWebSocketConnection,
+  reconnectWebSocket
+} from './utils-websocket.js';
 import "./style.css";
 
 // https://discord.com/developers/docs/activities/development-guides#instance-participants
@@ -29,7 +32,7 @@ let appContainer;
 // Store WebSocket server URL for consistency
 const getWebSocketUrl = () => {
   const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-  return `${protocol}//${window.location.host}`;
+  return `${protocol}//${window.location.host}/ws`;
 };
 
 const discordSdk = new DiscordSDK(import.meta.env.DISCORD_CLIENT_ID);
@@ -56,18 +59,17 @@ document.addEventListener('DOMContentLoaded', async () => {
   logDebug('Application initialized');
   logDebug(`Discord instanceId: ${discordSdk.instanceId}`);
   
-  // Apply URL mappings for Discord sandbox (for Ably)
+  // Apply URL mappings for Discord sandbox
   try {
     // Check if we're in Discord's environment
     const isProd = isInDiscordEnvironment();
     
     if (isProd) {
-      logDebug('Running in Discord - applying URL mappings for Ably');
-      // Use the patchUrlMappings API to route Ably requests through Discord's proxy
+      logDebug('Running in Discord - applying URL mappings for WebSockets');
+      // Use the patchUrlMappings API to route WebSocket requests through Discord's proxy
       await patchUrlMappings([
-        { prefix: '/ably', target: 'realtime.ably.io' },
-        { prefix: '/ably-rest', target: 'rest.ably.io' },
-        { prefix: '/ably-healthcheck', target: 'internet-up.ably-realtime.com' }
+        { prefix: '/ws', target: `${window.location.hostname}:${window.location.port}/ws` },
+        { prefix: '/api', target: `${window.location.hostname}:${window.location.port}/api` }
       ]);
       logDebug('URL mappings applied successfully');
     }
@@ -75,9 +77,9 @@ document.addEventListener('DOMContentLoaded', async () => {
     logDebug(`Failed to apply URL mappings: ${error.message}`, 'error');
   }
   
-  // Initialize Ably early
+  // Initialize WebSocket connection early
   try {
-    logDebug('Initializing Ably connection...', 'info');
+    logDebug('Initializing WebSocket connection...', 'info');
     
     // Log environment for troubleshooting
     const envDetails = {
@@ -85,69 +87,39 @@ document.addEventListener('DOMContentLoaded', async () => {
       clientId: discordSdk?.instanceId,
       protocol: window.location.protocol,
       host: window.location.host,
-      userAgent: navigator.userAgent
+      userAgent: navigator.userAgent,
+      wsUrl: getWebSocketUrl()
     };
     logDebug(`Environment details: ${JSON.stringify(envDetails)}`, 'info');
     
-    const ably = getAblyInstance();
-    logDebug('Ably initialized successfully');
-    
-    // Log Ably connection state
-    ably.connection.on('connected', () => {
-      logDebug('Ably connected!');
-      
-      // Log connection details
-      const connDetails = {
-        id: ably.connection.id,
-        key: ably.connection.key,
-        recoveryKey: ably.connection.recoveryKey ? 'available' : 'not available',
-        state: ably.connection.state,
-        errorReason: ably.connection.errorReason ? 
-                     ably.connection.errorReason.message : 'none'
-      };
-      logDebug(`Connection details: ${JSON.stringify(connDetails)}`, 'info');
-    });
+    const ws = getWebSocketInstance();
+    if (ws) {
+      logDebug('WebSocket initialized successfully');
+    } else {
+      logDebug('Failed to initialize WebSocket - instance is null', 'error');
+    }
     
     // Add fallback for persistent connection issues
     let connectionAttempts = 0;
     const checkConnectionState = () => {
       connectionAttempts++;
-      const state = ably.connection.state;
+      const state = ws ? ws.readyState : -1;
+      const stateStr = ['CONNECTING', 'OPEN', 'CLOSING', 'CLOSED'][state] || 'UNKNOWN';
       
-      if (state === 'connected') {
-        logDebug('Ably connection verified as connected');
+      if (state === WebSocket.OPEN) {
+        logDebug('WebSocket connection verified as connected');
         return; // Success
       } else if (connectionAttempts > 3) {
-        logDebug(`Ably still not connected after ${connectionAttempts} checks, state: ${state}`, 'warning');
-        logDebug('Applying emergency fallback for Ably connectivity issues', 'warning');
+        logDebug(`WebSocket still not connected after ${connectionAttempts} checks, state: ${stateStr}`, 'warning');
+        logDebug('WebSocket connection issues detected', 'warning');
         
-        // Create a mock Ably implementation with minimal functionality
-        // This allows the app to run without Ably when it's unavailable
-        const mockAbly = {
-          connection: {
-            state: 'connected',
-            id: 'mock-connection',
-            on: () => {}
-          },
-          channels: {
-            get: (channelName) => ({
-              name: channelName,
-              subscribe: async (eventName, callback) => {
-                logDebug(`Mock subscription to ${eventName} on ${channelName}`, 'info');
-                return true;
-              },
-              publish: async (eventName, data) => {
-                logDebug(`Mock publish to ${eventName} on ${channelName}`, 'info');
-                return true;
-              }
-            })
-          },
-          close: () => {}
-        };
-        
-        // Replace the actual instance with our mock
-        window.__mockAblyFallback = mockAbly;
-        logDebug('Fallback mock Ably instance activated due to connection issues', 'warning');
+        // Try to reconnect one last time
+        try {
+          logDebug('Attempting emergency WebSocket reconnection...', 'warning');
+          getWebSocketInstance();
+        } catch (error) {
+          logDebug(`Failed emergency reconnection: ${error.message}`, 'error');
+        }
       } else {
         // Try again after a delay
         setTimeout(checkConnectionState, 5000);
@@ -157,7 +129,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     // Check connection status after a delay
     setTimeout(checkConnectionState, 5000);
   } catch (error) {
-    logDebug(`Failed to initialize Ably: ${error.message}`, 'error');
+    logDebug(`Failed to initialize WebSocket: ${error.message}`, 'error');
     logDebug(`Error stack: ${error.stack || 'No stack trace available'}`, 'error');
   }
   

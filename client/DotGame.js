@@ -1,15 +1,15 @@
 /**
  * DotGame.js - Client-side dot visualization component
- * A simple multiplayer dot visualization using Ably for real-time communication
+ * A simple multiplayer dot visualization using WebSockets for real-time communication
  */
 import { 
   logDebug, 
   getRandomColor, 
-  getAblyChannel, 
+  getWebSocketChannel, 
   subscribeToChannel, 
   publishToChannel, 
-  closeAblyConnection 
-} from './utils.js';
+  closeWebSocketConnection 
+} from './utils-websocket.js';
 
 class DotGame {
   constructor(container, instanceId, userId, onLeaveCallback) {
@@ -25,8 +25,8 @@ class DotGame {
     // Create UI components
     this.createUI();
     
-    // Connect to Ably and setup the channel
-    this.connectAbly();
+    // Connect to WebSocket and setup the channel
+    this.connectWebSocket();
     
     // Log important game initialization info
     logDebug(`DotGame initialized for user: ${userId} in instance: ${instanceId}`);
@@ -68,13 +68,13 @@ class DotGame {
     this.setStatus('Connecting to dot game...');
   }
   
-  async connectAbly() {
+  async connectWebSocket() {
     try {
-      this.setStatus('Connecting to Ably...');
+      this.setStatus('Connecting to WebSocket...');
       
       // Create channel name from instanceId to group users in same Discord activity
       const channelName = `dotgame-${this.instanceId}`;
-      this.channel = getAblyChannel(channelName);
+      this.channel = getWebSocketChannel(channelName);
       
       // Subscribe to various event types
       await this.setupSubscriptions();
@@ -88,7 +88,7 @@ class DotGame {
       this.isConnected = true;
       this.setStatus('Connected to dot game');
     } catch (error) {
-      logDebug(`Failed to connect to Ably: ${error.message}`, 'error');
+      logDebug(`Failed to connect to WebSocket: ${error.message}`, 'error');
       this.setStatus(`Connection error: ${error.message}`);
       this.showRetryButton();
     }
@@ -202,7 +202,7 @@ class DotGame {
     const x = event.clientX - rect.left;
     const y = event.clientY - rect.top;
     
-    // Send new position via Ably
+    // Send new position via WebSocket
     this.sendPosition(x, y);
   }
   
@@ -213,7 +213,7 @@ class DotGame {
     retryButton.className = 'canvas-button retry-button';
     retryButton.style.marginTop = '10px';
     retryButton.addEventListener('click', () => {
-      this.connectAbly();
+      this.connectWebSocket();
     });
     
     // Add to controls if it doesn't already have a retry button
@@ -286,8 +286,8 @@ class DotGame {
     // Send leave message
     this.sendLeaveMessage();
     
-    // Disconnect from Ably
-    closeAblyConnection();
+    // Disconnect from WebSocket
+    closeWebSocketConnection();
     
     // Call the callback to return to the lobby
     if (this.onLeaveCallback) {
@@ -305,8 +305,8 @@ class DotGame {
     // Send leave message and disconnect
     this.sendLeaveMessage();
     
-    // Close Ably connection
-    closeAblyConnection();
+    // Close WebSocket connection
+    closeWebSocketConnection();
     
     // Remove event listeners
     if (this.dotDisplay) {
