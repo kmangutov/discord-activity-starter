@@ -296,8 +296,8 @@ export function getAblyInstance() {
       httpRequestTimeout: 10000,      // 10 seconds timeout for HTTP requests
       maxNetworkRetries: 5,            // Maximum network retries
       transportParams: {
-        // Use the mapped URL for health check instead of disabling it
-        internetUpUrl: isInDiscord ? '/ably-healthcheck/is-the-internet-up.txt' : null
+        // Completely disable the internet check since it's causing CORS issues
+        internetUpUrl: null
       }
     };
     
@@ -308,6 +308,10 @@ export function getAblyInstance() {
       config.restHost = '/ably-rest';
       config.port = 443;
       config.tls = true;
+      
+      // Additional options to bypass connectivity checks in Discord
+      config.autoConnect = false; // We'll connect manually after setup
+      config.useBinaryProtocol = false; // Use text protocol which is more reliable in Discord
     }
     
     ablyInstance = new Ably.Realtime(config);
@@ -375,6 +379,14 @@ export function getAblyInstance() {
       }
     });
     
+    // If we're in Discord and autoConnect is disabled, manually connect after event handlers are set
+    if (isInDiscord && config.autoConnect === false) {
+      logDebug('Manually connecting to Ably in Discord environment');
+      setTimeout(() => {
+        ablyInstance.connection.connect();
+      }, 1000); // Short delay to ensure all handlers are registered
+    }
+    
     return ablyInstance;
   } catch (error) {
     logDebug(`Failed to initialize Ably: ${error.message}`, 'error');
@@ -385,11 +397,25 @@ export function getAblyInstance() {
 // Get Ably channel with proper error handling
 export function getAblyChannel(channelId) {
   try {
+    // Check for fallback mock first
+    if (typeof window !== 'undefined' && window.__mockAblyFallback) {
+      logDebug(`Using mock Ably fallback for channel: ${channelId}`, 'warning');
+      return window.__mockAblyFallback.channels.get(channelId);
+    }
+    
+    // Otherwise use real Ably
     const ably = getAblyInstance();
     logDebug(`Getting Ably channel: ${channelId}`);
     return ably.channels.get(channelId);
   } catch (error) {
     logDebug(`Failed to get Ably channel ${channelId}: ${error.message}`, 'error');
+    
+    // If we get here and have a fallback, use it
+    if (typeof window !== 'undefined' && window.__mockAblyFallback) {
+      logDebug(`Falling back to mock Ably for channel: ${channelId}`, 'warning');
+      return window.__mockAblyFallback.channels.get(channelId);
+    }
+    
     throw error;
   }
 }
