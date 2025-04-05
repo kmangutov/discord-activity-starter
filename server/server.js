@@ -7,6 +7,7 @@ import http from 'http';
 import { WebSocketServer } from 'ws';
 import { getOrCreateRoom, leaveRoom, getAvailableGames } from './rooms.js';
 import { CanvasGame } from './game-example.js';
+import { DotGame } from './games/DotGame.js';
 
 dotenv.config({ path: "../.env" });
 
@@ -56,6 +57,13 @@ wss.on('connection', (ws) => {
           // Create a canvas game room if it doesn't exist
           if (!getOrCreateRoom(instanceId)) {
             room = new CanvasGame(instanceId);
+          } else {
+            room = getOrCreateRoom(instanceId);
+          }
+        } else if (gameType === 'dotgame') {
+          // Create a dot game room if it doesn't exist
+          if (!getOrCreateRoom(instanceId)) {
+            room = new DotGame(instanceId);
           } else {
             room = getOrCreateRoom(instanceId);
           }

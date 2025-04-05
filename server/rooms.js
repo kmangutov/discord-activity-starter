@@ -130,6 +130,7 @@ function getAvailableGames() {
   // For now, we'll return a hardcoded list
   return [
     { id: 'canvas', name: 'Simple Canvas', description: 'A collaborative drawing canvas' },
+    { id: 'dotgame', name: 'Dot Game', description: 'Simple multiplayer dot visualization' },
     { id: 'lobby', name: 'Lobby', description: 'The default lobby' }
   ];
 }

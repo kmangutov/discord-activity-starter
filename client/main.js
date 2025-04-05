@@ -63,17 +63,19 @@ document.addEventListener('DOMContentLoaded', () => {
   // Set up the app container
   document.querySelector('#app').innerHTML = `
     <div id="app-content">
-      <div id="debug-console">
-        <div id="debug-console-header">Debug Console <button id="toggle-debug">Toggle</button></div>
-        <div id="debug-console-content"></div>
+      <div id="debug-console" class="debug-console">
+        <div class="debug-header">
+          <span>Debug Console</span>
+          <button id="toggle-debug" class="toggle-debug">_</button>
+        </div>
+        <div id="debug-console-content" class="debug-console-content"></div>
       </div>
     </div>
   `;
   
   // Add toggle functionality for debug console
   document.getElementById('toggle-debug').addEventListener('click', () => {
-    const consoleContent = document.getElementById('debug-console-content');
-    consoleContent.style.display = consoleContent.style.display === 'none' ? 'block' : 'none';
+    document.getElementById('debug-console').classList.toggle('minimized');
   });
   
   appContainer = document.getElementById('app-content');
@@ -140,12 +142,15 @@ async function setupDiscordSdk() {
 async function fetchParticipants() {
   try {
     const response = await discordSdk.commands.getInstanceConnectedParticipants();
+    // Check what structure we're getting back
+    logDebug(`Participants response structure: ${JSON.stringify(response)}`);
     
     // Handle different response structures
     if (Array.isArray(response)) {
       participants = response;
     } else if (response && typeof response === 'object') {
       // If it's an object, try to find the participants array
+      // It might be in a property like 'users', 'participants', etc.
       if (response.users) {
         participants = response.users;
       } else if (response.participants) {
@@ -225,29 +230,33 @@ function renderParticipants() {
         return;
       }
       
-      const participantElement = document.createElement('div');
-      participantElement.className = 'participant-item';
-      
-      // Display user avatar if available
+      // Create avatar URL
+      let avatarSrc = '';
       if (user.avatar) {
-        const avatarElement = document.createElement('img');
-        avatarElement.className = 'participant-avatar';
-        avatarElement.src = user.avatar;
-        avatarElement.alt = user.username || 'User';
-        participantElement.appendChild(avatarElement);
+        avatarSrc = `https://cdn.discordapp.com/avatars/${user.id}/${user.avatar}.png?size=256`;
       } else {
-        // Fallback avatar
-        const avatarFallback = document.createElement('div');
-        avatarFallback.className = 'participant-avatar-fallback';
-        avatarFallback.textContent = (user.username || 'User').charAt(0).toUpperCase();
-        participantElement.appendChild(avatarFallback);
+        // Safely handle potential BigInt conversion issues
+        try {
+          const defaultAvatarIndex = Number(BigInt(user.id) >> 22n % 6n);
+          avatarSrc = `https://cdn.discordapp.com/embed/avatars/${defaultAvatarIndex}.png`;
+        } catch (error) {
+          // Fallback to avatar 0 if we can't calculate
+          avatarSrc = `https://cdn.discordapp.com/embed/avatars/0.png`;
+          logDebug(`Avatar calculation error: ${error.message}`, 'warning');
+        }
       }
       
-      // Display user name
-      const nameElement = document.createElement('span');
-      nameElement.className = 'participant-name';
-      nameElement.textContent = user.username || `User ${user.id || 'Unknown'}`;
-      participantElement.appendChild(nameElement);
+      // Create username with fallbacks
+      const username = user.global_name || user.username || 
+                       (user.user ? (user.user.global_name || user.user.username) : 'Unknown User');
+      
+      // Create participant element
+      const participantElement = document.createElement('div');
+      participantElement.className = 'participant-item';
+      participantElement.innerHTML = `
+        <img src="${avatarSrc}" alt="Avatar" class="participant-avatar">
+        <span class="participant-name">${username}</span>
+      `;
       
       participantsList.appendChild(participantElement);
     } catch (error) {
@@ -267,6 +276,7 @@ async function fetchAvailableGames() {
     // Set default available games if fetch fails
     availableGames = [
       { id: 'canvas', name: 'Simple Canvas', description: 'A collaborative drawing canvas' },
+      { id: 'dotgame', name: 'Dot Game', description: 'Simple multiplayer dot visualization' },
       { id: 'lobby', name: 'Lobby', description: 'The default lobby' }
     ];
   }
@@ -338,6 +348,12 @@ function showLobby() {
   
   // Render participants in the sidebar
   renderParticipants();
+  
+  // Re-add debug console
+  const debugConsole = document.getElementById('debug-console');
+  if (debugConsole) {
+    appContainer.appendChild(debugConsole);
+  }
 }
 
 // Start a game
@@ -385,6 +401,12 @@ function startGame(gameId) {
       userId, 
       () => showLobby() // Callback to return to lobby
     );
+  } else if (gameId === 'dotgame') {
+    // Get current user ID from auth
+    const userId = auth?.user?.id || 'anonymous';
+    
+    // Initialize the dot game
+    initDotGame(gameContainer, userId);
   } else {
     // Handle unknown game type
     gameContainer.innerHTML = `<div class="error-message">Unknown game type: ${gameId}</div>`;
@@ -399,10 +421,233 @@ function startGame(gameId) {
   
   // Render participants in the sidebar
   renderParticipants();
+  
+  // Re-add debug console
+  const debugConsole = document.getElementById('debug-console');
+  if (debugConsole) {
+    appContainer.appendChild(debugConsole);
+  }
 }
 
-// Initial render of participants
-renderParticipants();
+// Simple Dot Game
+function initDotGame(container, userId) {
+  // Create game elements
+  container.innerHTML = `
+    <div class="dot-game">
+      <div class="dot-game-display"></div>
+      <div class="dot-game-controls">
+        <button id="leave-dot-game" class="canvas-button leave-button">Leave Game</button>
+      </div>
+      <div class="dot-game-status"></div>
+    </div>
+  `;
+  
+  const dotDisplay = container.querySelector('.dot-game-display');
+  const statusDisplay = container.querySelector('.dot-game-status');
+  
+  // Styling for the dot display
+  dotDisplay.style.width = '600px';
+  dotDisplay.style.height = '400px';
+  dotDisplay.style.backgroundColor = '#333';
+  dotDisplay.style.position = 'relative';
+  dotDisplay.style.borderRadius = '8px';
+  dotDisplay.style.margin = '0 auto';
+  
+  // Add leave button functionality
+  container.querySelector('#leave-dot-game').addEventListener('click', () => {
+    if (socket) {
+      socket.close();
+    }
+    showLobby();
+  });
+  
+  // Set initial status
+  statusDisplay.textContent = 'Connecting to dot game...';
+  
+  // Create WebSocket connection
+  const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+  const wsUrl = `${protocol}//${window.location.host}`;
+  const socket = new WebSocket(wsUrl);
+  
+  // Store participant dots
+  const dots = new Map();
+  
+  // Random color for the current user
+  const userColor = getRandomColor();
+  
+  // WebSocket event handlers
+  socket.onopen = () => {
+    statusDisplay.textContent = 'Connected! Joining dot game...';
+    
+    // Join the room with dotgame type
+    socket.send(JSON.stringify({
+      type: 'join_room',
+      instanceId: discordSdk.instanceId,
+      userId: userId,
+      gameType: 'dotgame'
+    }));
+    
+    // Also send our initial position
+    sendPosition(Math.random() * 500, Math.random() * 300);
+  };
+  
+  socket.onmessage = (event) => {
+    try {
+      const message = JSON.parse(event.data);
+      
+      switch (message.type) {
+        case 'state_sync':
+          // Sync existing dots
+          if (message.state && message.state.positions) {
+            for (const [participantId, position] of Object.entries(message.state.positions)) {
+              updateDot(participantId, position.x, position.y, position.color);
+            }
+          }
+          statusDisplay.textContent = 'Connected to dot game';
+          break;
+          
+        case 'dot_update':
+          // Update a dot position
+          updateDot(
+            message.userId,
+            message.position.x,
+            message.position.y,
+            message.position.color
+          );
+          break;
+          
+        case 'user_joined':
+          statusDisplay.textContent = `User joined! (${message.participantCount} total)`;
+          break;
+          
+        case 'user_left':
+          // Remove the dot for this user
+          if (dots.has(message.userId)) {
+            dotDisplay.removeChild(dots.get(message.userId));
+            dots.delete(message.userId);
+          }
+          statusDisplay.textContent = `User left. (${message.participantCount} remaining)`;
+          break;
+      }
+    } catch (error) {
+      console.error('Error handling dot game message:', error);
+    }
+  };
+  
+  socket.onclose = () => {
+    statusDisplay.textContent = 'Disconnected from dot game';
+  };
+  
+  // Handle click on the dot display to move your dot
+  dotDisplay.addEventListener('click', (event) => {
+    const rect = dotDisplay.getBoundingClientRect();
+    const x = event.clientX - rect.left;
+    const y = event.clientY - rect.top;
+    
+    // Send new position to server
+    sendPosition(x, y);
+    
+    // Also update locally
+    updateDot(userId, x, y, userColor);
+  });
+  
+  // Send position update to server
+  function sendPosition(x, y) {
+    if (socket.readyState === WebSocket.OPEN) {
+      socket.send(JSON.stringify({
+        type: 'update_position',
+        position: {
+          x: x,
+          y: y,
+          color: userColor
+        }
+      }));
+    }
+  }
+  
+  // Update or create a dot for a participant
+  function updateDot(participantId, x, y, color) {
+    let dot;
+    
+    if (dots.has(participantId)) {
+      // Update existing dot
+      dot = dots.get(participantId);
+    } else {
+      // Create new dot
+      dot = document.createElement('div');
+      dot.className = 'user-dot';
+      dot.style.position = 'absolute';
+      dot.style.width = '20px';
+      dot.style.height = '20px';
+      dot.style.borderRadius = '50%';
+      dot.style.transition = 'all 0.3s ease';
+      
+      // Add username tooltip
+      const tooltip = document.createElement('div');
+      tooltip.className = 'dot-tooltip';
+      tooltip.textContent = participantId;
+      tooltip.style.position = 'absolute';
+      tooltip.style.bottom = '25px';
+      tooltip.style.left = '50%';
+      tooltip.style.transform = 'translateX(-50%)';
+      tooltip.style.backgroundColor = 'rgba(0, 0, 0, 0.8)';
+      tooltip.style.color = 'white';
+      tooltip.style.padding = '3px 8px';
+      tooltip.style.borderRadius = '4px';
+      tooltip.style.fontSize = '12px';
+      tooltip.style.whiteSpace = 'nowrap';
+      tooltip.style.opacity = '0';
+      tooltip.style.transition = 'opacity 0.2s';
+      
+      dot.appendChild(tooltip);
+      
+      // Show tooltip on hover
+      dot.addEventListener('mouseenter', () => {
+        tooltip.style.opacity = '1';
+      });
+      
+      dot.addEventListener('mouseleave', () => {
+        tooltip.style.opacity = '0';
+      });
+      
+      dotDisplay.appendChild(dot);
+      dots.set(participantId, dot);
+    }
+    
+    // Update position and color
+    dot.style.backgroundColor = color || '#00ff00';
+    dot.style.left = `${x - 10}px`; // Center the dot
+    dot.style.top = `${y - 10}px`;
+    
+    // Highlight if it's the current user
+    if (participantId === userId) {
+      dot.style.border = '2px solid white';
+    }
+  }
+  
+  // Generate a random color
+  function getRandomColor() {
+    const colors = [
+      '#FF5733', // Red
+      '#33FF57', // Green
+      '#3357FF', // Blue
+      '#FF33F5', // Pink
+      '#F5FF33', // Yellow
+      '#33FFF5'  // Cyan
+    ];
+    return colors[Math.floor(Math.random() * colors.length)];
+  }
+  
+  // Store WebSocket for cleanup
+  currentGame = {
+    socket: socket,
+    destroy: function() {
+      if (this.socket && this.socket.readyState === WebSocket.OPEN) {
+        this.socket.close();
+      }
+    }
+  };
+}
 
 // Debug console toggle
 document.getElementById('toggle-debug').addEventListener('click', () => {
