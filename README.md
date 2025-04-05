@@ -15,6 +15,7 @@ A "sidecart" framework for easily adding and hosting multiplayer games in Discor
 ## Adding a New Game (Technical Guide)
 
 To add a new game to the framework, follow these steps:
+(this is written by LLM so err on the side of treating DotGame as the example)
 
 ### 1. Create Server-Side Game Implementation
 
