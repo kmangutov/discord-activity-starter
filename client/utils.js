@@ -517,7 +517,7 @@ export function getWebSocketChannel(channelId) {
     if (wsChannels[channelId]) {
       return wsChannels[channelId];
     }
-   
+    
     // Otherwise create new channel
     logDebug(`Creating new WebSocket channel: ${channelId}`);
     return new WebSocketChannel(channelId);
@@ -525,6 +525,25 @@ export function getWebSocketChannel(channelId) {
     logDebug(`Failed to get WebSocket channel ${channelId}: ${error.message}`, 'error');
     throw error;
   }
+}
+
+// Monitor network requests for WebSocket debugging
+export function setupXHRErrorMonitoring() {
+  if (typeof window === 'undefined' || !window.XMLHttpRequest) return;
+  
+  // Simple version that doesn't do intensive monitoring since we're not using Ably
+  logDebug('WebSocket monitoring enabled', 'info');
+  
+  // Watch for network issues that might affect WebSockets
+  window.addEventListener('offline', () => {
+    logDebug('Network connection lost - WebSocket connections may be affected', 'warning');
+  });
+  
+  window.addEventListener('online', () => {
+    logDebug('Network connection restored - attempting to reconnect WebSockets', 'info');
+    // Try to reconnect WebSocket
+    reconnectWebSocket();
+  });
 }
 
 // Subscribe to a WebSocket channel with error handling
