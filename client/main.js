@@ -314,8 +314,20 @@ function updateParticipants(newParticipants) {
 async function fetchAvailableGames() {
   try {
     const response = await fetch('/.proxy/api/games');
-    availableGames = await response.json();
-    logDebug(`Fetched ${availableGames.length} available games`);
+    const data = await response.json();
+    
+    // Handle both old format (array) and new format ({ games: array })
+    if (data.games && Array.isArray(data.games)) {
+      availableGames = data.games;
+      logDebug(`Fetched ${availableGames.length} available games from games property`);
+    } else if (Array.isArray(data)) {
+      availableGames = data;
+      logDebug(`Fetched ${availableGames.length} available games from direct array`);
+    } else {
+      throw new Error(`Unexpected API response format: ${JSON.stringify(data)}`);
+    }
+    
+    logDebug(`Available games: ${JSON.stringify(availableGames)}`);
   } catch (error) {
     logDebug(`Failed to fetch available games: ${error.message}`, 'error');
     // Set default available games if fetch fails
