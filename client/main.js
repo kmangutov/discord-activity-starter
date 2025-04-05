@@ -30,9 +30,10 @@ let availableGames = [];
 let appContainer;
 
 // Store WebSocket server URL for consistency
+// TODO: Use .env value
 const getWebSocketUrl = () => {
-  const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-  return `${protocol}//${window.location.host}/ws`;
+  //const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+  return `wss://brebiskingactivity-production.up.railway.app/ws`; // `${protocol}//${window.location.host}/ws`;
 };
 
 const discordSdk = new DiscordSDK(import.meta.env.DISCORD_CLIENT_ID);
