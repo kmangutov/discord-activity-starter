@@ -2,23 +2,20 @@
  * Utility functions for Discord Activity app
  */
 
-// Import Ably using ES modules instead of require
-import * as Ably from 'ably';
-
 // Debug logger function
 export function logDebug(message, type = 'info') {
   const debugConsole = document.getElementById('debug-console-content');
   if (!debugConsole) return;
-  
+ 
   const timestamp = new Date().toLocaleTimeString();
   const logEntry = document.createElement('div');
   logEntry.className = `log-entry log-${type}`;
   logEntry.innerHTML = `<span class="log-time">[${timestamp}]</span> <span class="log-message">${message}</span>`;
-  
+ 
   debugConsole.appendChild(logEntry);
   // Auto-scroll to bottom
   debugConsole.scrollTop = debugConsole.scrollHeight;
-  
+ 
   // Limit entries to prevent overflow
   if (debugConsole.children.length > 50) {
     debugConsole.removeChild(debugConsole.children[0]);
@@ -51,20 +48,20 @@ export function setupConsoleOverrides() {
 export function renderParticipants(participants, containerId = 'participants-list') {
   const participantsList = document.getElementById(containerId);
   if (!participantsList) return;
-  
+ 
   participantsList.innerHTML = '';
-  
+ 
   // Guard against non-array participants
   if (!Array.isArray(participants)) {
     logDebug('Participants is not an array in renderParticipants', 'error');
     return;
   }
-  
+ 
   if (participants.length === 0) {
     participantsList.innerHTML = '<div class="no-participants">No participants found</div>';
     return;
   }
-  
+ 
   participants.forEach(user => {
     try {
       // Guard against invalid user objects
@@ -72,7 +69,7 @@ export function renderParticipants(participants, containerId = 'participants-lis
         logDebug(`Invalid user object: ${JSON.stringify(user)}`, 'warning');
         return;
       }
-      
+     
       // Create avatar URL
       let avatarSrc = '';
       if (user.avatar) {
@@ -88,11 +85,11 @@ export function renderParticipants(participants, containerId = 'participants-lis
           logDebug(`Avatar calculation error: ${error.message}`, 'warning');
         }
       }
-      
+     
       // Create username with fallbacks
-      const username = user.global_name || user.username || 
+      const username = user.global_name || user.username ||
                        (user.user ? (user.user.global_name || user.user.username) : 'Unknown User');
-      
+     
       // Create participant element
       const participantElement = document.createElement('div');
       participantElement.className = 'participant-item';
@@ -100,7 +97,7 @@ export function renderParticipants(participants, containerId = 'participants-lis
         <img src="${avatarSrc}" alt="Avatar" class="participant-avatar">
         <span class="participant-name">${username}</span>
       `;
-      
+     
       participantsList.appendChild(participantElement);
     } catch (error) {
       logDebug(`Error rendering participant: ${error.message}`, 'error');
@@ -112,14 +109,14 @@ export function renderParticipants(participants, containerId = 'participants-lis
 export function setupDebugConsole() {
   const toggleButton = document.getElementById('toggle-debug');
   if (!toggleButton) return;
-  
+ 
   toggleButton.addEventListener('click', () => {
     const debugConsole = document.getElementById('debug-console');
     debugConsole.classList.toggle('minimized');
-    
+   
     toggleButton.textContent = debugConsole.classList.contains('minimized') ? '□' : '_';
   });
-  
+ 
   // Initial log
   logDebug('Debug console initialized');
 }
@@ -136,7 +133,7 @@ export function createDebugConsole(container) {
     </div>
     <div id="debug-console-content" class="debug-console-content"></div>
   `;
-  
+ 
   container.appendChild(debugConsole);
   setupDebugConsole();
 }
@@ -160,35 +157,35 @@ export async function checkWebSocketConnectivity(url) {
     try {
       logDebug(`Testing WebSocket connectivity to ${url}`);
       const testSocket = new WebSocket(url);
-      
+     
       // Set a timeout to prevent hanging
       const timeout = setTimeout(() => {
         testSocket.close();
         reject(new Error('WebSocket connection timeout'));
       }, 5000);
-      
+     
       testSocket.onopen = () => {
         clearTimeout(timeout);
         logDebug('WebSocket connection test successful');
-        
+       
         // Send a test message
         testSocket.send(JSON.stringify({
           type: 'connectivity_test'
         }));
-        
+       
         // Close after successful check
         setTimeout(() => {
           testSocket.close();
           resolve(true);
         }, 500);
       };
-      
+     
       testSocket.onerror = (error) => {
         clearTimeout(timeout);
         logDebug(`WebSocket connection test failed: ${JSON.stringify(error)}`, 'error');
         reject(error);
       };
-      
+     
     } catch (error) {
       logDebug(`Failed to create test WebSocket: ${error.message}`, 'error');
       reject(error);
@@ -199,19 +196,19 @@ export async function checkWebSocketConnectivity(url) {
 // Enhanced logging for WebSocket events
 export function setupWebSocketLogging(socket, prefix = '') {
   if (!socket) return;
-  
+ 
   // Store original handlers if they exist
   const originalOnOpen = socket.onopen;
   const originalOnMessage = socket.onmessage;
   const originalOnClose = socket.onclose;
   const originalOnError = socket.onerror;
-  
+ 
   // Enhance onopen
   socket.onopen = (event) => {
     logDebug(`${prefix}WebSocket connected`);
     if (originalOnOpen) originalOnOpen.call(socket, event);
   };
-  
+ 
   // Enhance onmessage
   socket.onmessage = (event) => {
     try {
@@ -222,20 +219,20 @@ export function setupWebSocketLogging(socket, prefix = '') {
     }
     if (originalOnMessage) originalOnMessage.call(socket, event);
   };
-  
+ 
   // Enhance onclose
   socket.onclose = (event) => {
-    logDebug(`${prefix}WebSocket closed: ${event.code} - ${event.reason}`, 
+    logDebug(`${prefix}WebSocket closed: ${event.code} - ${event.reason}`,
       event.code === 1000 ? 'info' : 'warning');
     if (originalOnClose) originalOnClose.call(socket, event);
   };
-  
+ 
   // Enhance onerror
   socket.onerror = (event) => {
     logDebug(`${prefix}WebSocket error`, 'error');
     if (originalOnError) originalOnError.call(socket, event);
   };
-  
+ 
   return socket;
 }
 
@@ -250,177 +247,287 @@ export function getEnvVariable(key, fallback = null) {
   if (typeof process !== 'undefined' && process.env && process.env[key]) {
     return process.env[key];
   }
-  
+ 
   // Try window.env for runtime injected env vars
   if (window.env && window.env[key]) {
     return window.env[key];
   }
-  
+ 
   // Log for debugging
   console.log(`Using fallback value for ${key}`, fallback);
-  
+ 
   // Return fallback value if not found
   return fallback;
 }
 
 // Check if running in Discord environment
 export function isInDiscordEnvironment() {
-  return typeof window !== 'undefined' && 
-         window.discordSdk && 
+  return typeof window !== 'undefined' &&
+         window.discordSdk &&
          window.discordSdk.isInDiscord;
 }
 
-// Ably connection singleton
-let ablyInstance = null;
+// ----- WebSocket Connection Management -----
 
-// Initialize and get Ably singleton
-export function getAblyInstance() {
-  if (ablyInstance) {
-    return ablyInstance;
+// WebSocket connection singleton
+let wsInstance = null;
+let wsChannels = {};
+let reconnectAttempts = 0;
+const MAX_RECONNECT_ATTEMPTS = 10;
+const RECONNECT_BASE_DELAY = 1000; // Start with 1s delay
+const CONNECTION_STATES = {
+  CONNECTING: 'connecting',
+  CONNECTED: 'connected',
+  DISCONNECTED: 'disconnected',
+  FAILED: 'failed'
+};
+
+// WebSocket connection status
+let connectionState = CONNECTION_STATES.DISCONNECTED;
+let connectionStateListeners = [];
+
+// Add connection state listener
+export function addConnectionStateListener(callback) {
+  connectionStateListeners.push(callback);
+}
+
+// Remove connection state listener
+export function removeConnectionStateListener(callback) {
+  connectionStateListeners = connectionStateListeners.filter(cb => cb !== callback);
+}
+
+// Notify all listeners of state change
+function notifyStateChange(newState) {
+  connectionState = newState;
+  connectionStateListeners.forEach(callback => {
+    try {
+      callback(newState);
+    } catch (error) {
+      logDebug(`Error in connection state listener: ${error.message}`, 'error');
+    }
+  });
+}
+
+// Initialize and get WebSocket singleton
+export function getWebSocketInstance() {
+  if (wsInstance && wsInstance.readyState === WebSocket.OPEN) {
+    return wsInstance;
   }
-  
-  const apiKey = getEnvVariable('ABLY_API_KEY', 'wJCxmg.MM9QRw:YCEe19Xuz85-vFqXmcHwSHavTTDYAX542v7tiSCSR9o');
-  
+ 
+  // Get WebSocket URL from environment
+  const wsUrl = getEnvVariable('WS_SERVER_URL', 'wss://railway-url/ws');
+ 
   try {
     // Check if we're in Discord to use the mapped URLs
     const isInDiscord = isInDiscordEnvironment();
-    
-    // Configuration for Ably
-    const config = {
-      key: apiKey,
-      clientId: `user-${Date.now()}`, // Generate unique client ID
-      echoMessages: false,
-      autoConnect: true,
-      disconnectedRetryTimeout: 5000, // 5 seconds retry
-      suspendedRetryTimeout: 15000,   // 15 seconds retry after suspended
-      httpRequestTimeout: 10000,      // 10 seconds timeout for HTTP requests
-      maxNetworkRetries: 5,            // Maximum network retries
-      transportParams: {
-        // Completely disable the internet check since it's causing CORS issues
-        internetUpUrl: null
+   
+    // Use different URL if in Discord environment
+    const finalWsUrl = isInDiscord ? '/ws' : wsUrl;
+   
+    notifyStateChange(CONNECTION_STATES.CONNECTING);
+    logDebug(`Connecting to WebSocket: ${finalWsUrl}`);
+   
+    // Create new WebSocket instance
+    wsInstance = new WebSocket(finalWsUrl);
+   
+    // Setup enhanced logging
+    setupWebSocketLogging(wsInstance, 'Main: ');
+   
+    // Setup event handlers
+    wsInstance.onopen = () => {
+      logDebug('WebSocket connected successfully', 'info');
+      notifyStateChange(CONNECTION_STATES.CONNECTED);
+      reconnectAttempts = 0; // Reset reconnect attempts on successful connection
+     
+      // Resubscribe to all channels
+      Object.entries(wsChannels).forEach(([channelId, channel]) => {
+        // Send subscription message for this channel
+        wsInstance.send(JSON.stringify({
+          type: 'subscribe',
+          channel: channelId
+        }));
+       
+        logDebug(`Resubscribed to channel: ${channelId}`);
+      });
+    };
+   
+    wsInstance.onclose = (event) => {
+      const wasClean = event.code === 1000;
+      logDebug(`WebSocket closed: ${event.code} - ${event.reason}`, wasClean ? 'info' : 'warning');
+      notifyStateChange(CONNECTION_STATES.DISCONNECTED);
+     
+      // Only attempt to reconnect if not cleanly closed
+      if (!wasClean) {
+        attemptReconnect();
       }
     };
-    
-    // If in Discord, use the mapped URLs
-    if (isInDiscord) {
-      logDebug('Using Discord-mapped URLs for Ably');
-      config.realtimeHost = '/ably';
-      config.restHost = '/ably-rest';
-      config.port = 443;
-      config.tls = true;
-      
-      // Additional options to bypass connectivity checks in Discord
-      config.autoConnect = false; // We'll connect manually after setup
-      config.useBinaryProtocol = false; // Use text protocol which is more reliable in Discord
-    }
-    
-    ablyInstance = new Ably.Realtime(config);
-    
-    // Add connection state change listener
-    ablyInstance.connection.on('connected', () => {
-      logDebug('Ably connected successfully', 'info');
-    });
-    
-    ablyInstance.connection.on('disconnected', () => {
-      logDebug('Ably disconnected', 'warning');
-    });
-    
-    ablyInstance.connection.on('suspended', () => {
-      logDebug('Ably connection suspended - will automatically retry', 'warning');
-    });
-    
-    ablyInstance.connection.on('failed', (err) => {
-      logDebug(`Ably connection failed: ${err?.message || 'Unknown error'}`, 'error');
-      // Force reconnection on failure
-      setTimeout(() => {
-        logDebug('Attempting to reconnect to Ably...', 'info');
-        if (ablyInstance) {
-          ablyInstance.connection.connect();
+   
+    wsInstance.onerror = (error) => {
+      logDebug(`WebSocket error: ${JSON.stringify(error)}`, 'error');
+      notifyStateChange(CONNECTION_STATES.FAILED);
+    };
+   
+    wsInstance.onmessage = (event) => {
+      try {
+        const message = JSON.parse(event.data);
+       
+        // Handle different message types
+        if (message.type === 'message' && message.channel && message.event) {
+          // Find channel and dispatch message to subscribers
+          const channel = wsChannels[message.channel];
+          if (channel) {
+            channel.dispatchEvent(message.event, message.data);
+          }
+        } else if (message.type === 'system') {
+          // Handle system messages
+          logDebug(`System message: ${message.message}`);
         }
-      }, 5000);
-    });
-    
-    // Handle connection errors
-    ablyInstance.connection.on('error', (err) => {
-      logDebug(`Ably error: ${err?.message || 'Unknown error'}`, 'error');
-      
-      // Log detailed error information
-      const errorDetails = {
-        message: err?.message,
-        code: err?.code,
-        statusCode: err?.statusCode,
-        cause: err?.cause?.message,
-        state: ablyInstance.connection.state,
-        config: {
-          realtimeHost: config.realtimeHost,
-          restHost: config.restHost,
-          port: config.port,
-          tls: config.tls,
-          clientId: config.clientId,
-          echoMessages: config.echoMessages,
-          autoConnect: config.autoConnect,
-          disconnectedRetryTimeout: config.disconnectedRetryTimeout,
-          suspendedRetryTimeout: config.suspendedRetryTimeout,
-          httpRequestTimeout: config.httpRequestTimeout,
-          maxNetworkRetries: config.maxNetworkRetries
-        }
-      };
-      
-      logDebug(`Detailed Ably error: ${JSON.stringify(errorDetails)}`, 'error');
-      
-      // Check for specific XHR error and handle accordingly
-      if (err?.message?.includes('XHR') || err?.message?.includes('network')) {
-        logDebug('Network issue detected - will attempt to reconnect', 'warning');
-        
-        // If in Discord, verify URL mappings are being used
-        if (isInDiscordEnvironment()) {
-          logDebug('Running in Discord - please check URL mappings in Developer Portal', 'warning');
+      } catch (error) {
+        logDebug(`Error processing WebSocket message: ${error.message}`, 'error');
+      }
+    };
+   
+    return wsInstance;
+  } catch (error) {
+    logDebug(`Failed to initialize WebSocket: ${error.message}`, 'error');
+    notifyStateChange(CONNECTION_STATES.FAILED);
+    throw error;
+  }
+}
+
+// Attempt to reconnect with exponential backoff
+function attemptReconnect() {
+  if (reconnectAttempts >= MAX_RECONNECT_ATTEMPTS) {
+    logDebug(`Maximum reconnection attempts (${MAX_RECONNECT_ATTEMPTS}) reached. Giving up.`, 'error');
+    notifyStateChange(CONNECTION_STATES.FAILED);
+    return;
+  }
+ 
+  // Calculate delay with exponential backoff (with jitter)
+  const delay = RECONNECT_BASE_DELAY * Math.pow(1.5, reconnectAttempts) * (0.9 + Math.random() * 0.2);
+  reconnectAttempts++;
+ 
+  logDebug(`Attempting to reconnect in ${Math.round(delay / 1000)}s (attempt ${reconnectAttempts}/${MAX_RECONNECT_ATTEMPTS})`, 'info');
+ 
+  setTimeout(() => {
+    if (wsInstance?.readyState !== WebSocket.OPEN) {
+      // Close existing socket if it exists
+      if (wsInstance) {
+        try {
+          wsInstance.close();
+        } catch (e) {
+          // Ignore errors when closing
         }
       }
+     
+      // Create new instance
+      getWebSocketInstance();
+    }
+  }, delay);
+}
+
+// Channel class to mimic Ably channels
+class WebSocketChannel {
+  constructor(channelId) {
+    this.name = channelId;
+    this.eventHandlers = new Map();
+   
+    // Register channel
+    wsChannels[channelId] = this;
+   
+    // Subscribe to channel on server
+    const ws = getWebSocketInstance();
+    if (ws.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify({
+        type: 'subscribe',
+        channel: channelId
+      }));
+      logDebug(`Subscribed to channel: ${channelId}`);
+    }
+  }
+ 
+  // Subscribe to events on this channel
+  subscribe(eventName, callback) {
+    if (!this.eventHandlers.has(eventName)) {
+      this.eventHandlers.set(eventName, new Set());
+    }
+   
+    this.eventHandlers.get(eventName).add(callback);
+    logDebug(`Added subscription to event '${eventName}' on channel '${this.name}'`);
+   
+    return Promise.resolve(); // For compatibility with Ably API
+  }
+ 
+  // Unsubscribe from events
+  unsubscribe(eventName, callback) {
+    if (!this.eventHandlers.has(eventName)) return;
+   
+    if (callback) {
+      this.eventHandlers.get(eventName).delete(callback);
+    } else {
+      this.eventHandlers.delete(eventName);
+    }
+   
+    logDebug(`Removed subscription to event '${eventName}' on channel '${this.name}'`);
+  }
+ 
+  // Publish event to this channel
+  publish(eventName, data) {
+    const ws = getWebSocketInstance();
+   
+    if (ws.readyState !== WebSocket.OPEN) {
+      logDebug(`Cannot publish - WebSocket not connected`, 'error');
+      return Promise.reject(new Error('WebSocket not connected'));
+    }
+   
+    try {
+      ws.send(JSON.stringify({
+        type: 'publish',
+        channel: this.name,
+        event: eventName,
+        data: data
+      }));
+     
+      logDebug(`Published '${eventName}' to channel '${this.name}'`);
+      return Promise.resolve(); // For compatibility with Ably API
+    } catch (error) {
+      logDebug(`Error publishing to channel: ${error.message}`, 'error');
+      return Promise.reject(error);
+    }
+  }
+ 
+  // Dispatch event to subscribers (called by WebSocket manager)
+  dispatchEvent(eventName, data) {
+    if (!this.eventHandlers.has(eventName)) return;
+   
+    this.eventHandlers.get(eventName).forEach(callback => {
+      try {
+        callback({ data }); // Format to match Ably message format
+      } catch (error) {
+        logDebug(`Error in event handler for '${eventName}': ${error.message}`, 'error');
+      }
     });
-    
-    // If we're in Discord and autoConnect is disabled, manually connect after event handlers are set
-    if (isInDiscord && config.autoConnect === false) {
-      logDebug('Manually connecting to Ably in Discord environment');
-      setTimeout(() => {
-        ablyInstance.connection.connect();
-      }, 1000); // Short delay to ensure all handlers are registered
-    }
-    
-    return ablyInstance;
-  } catch (error) {
-    logDebug(`Failed to initialize Ably: ${error.message}`, 'error');
-    throw error;
   }
 }
 
-// Get Ably channel with proper error handling
-export function getAblyChannel(channelId) {
+// Get WebSocket channel (equivalent to Ably channel)
+export function getWebSocketChannel(channelId) {
   try {
-    // Check for fallback mock first
-    if (typeof window !== 'undefined' && window.__mockAblyFallback) {
-      logDebug(`Using mock Ably fallback for channel: ${channelId}`, 'warning');
-      return window.__mockAblyFallback.channels.get(channelId);
+    // Check if channel already exists
+    if (wsChannels[channelId]) {
+      return wsChannels[channelId];
     }
-    
-    // Otherwise use real Ably
-    const ably = getAblyInstance();
-    logDebug(`Getting Ably channel: ${channelId}`);
-    return ably.channels.get(channelId);
+   
+    // Otherwise create new channel
+    logDebug(`Creating new WebSocket channel: ${channelId}`);
+    return new WebSocketChannel(channelId);
   } catch (error) {
-    logDebug(`Failed to get Ably channel ${channelId}: ${error.message}`, 'error');
-    
-    // If we get here and have a fallback, use it
-    if (typeof window !== 'undefined' && window.__mockAblyFallback) {
-      logDebug(`Falling back to mock Ably for channel: ${channelId}`, 'warning');
-      return window.__mockAblyFallback.channels.get(channelId);
-    }
-    
+    logDebug(`Failed to get WebSocket channel ${channelId}: ${error.message}`, 'error');
     throw error;
   }
 }
 
-// Subscribe to an Ably channel with error handling
+// Subscribe to a WebSocket channel with error handling
 export async function subscribeToChannel(channel, eventName, callback) {
   try {
     logDebug(`Subscribing to event '${eventName}' on channel '${channel.name}'`);
@@ -435,7 +542,7 @@ export async function subscribeToChannel(channel, eventName, callback) {
   }
 }
 
-// Publish to an Ably channel with error handling
+// Publish to a WebSocket channel with error handling
 export async function publishToChannel(channel, eventName, data) {
   try {
     logDebug(`Publishing '${eventName}' message: ${JSON.stringify(data)}`);
@@ -447,107 +554,29 @@ export async function publishToChannel(channel, eventName, data) {
   }
 }
 
-// Close Ably connection
-export function closeAblyConnection() {
-  if (ablyInstance) {
-    ablyInstance.connection.close();
-    ablyInstance = null;
-    logDebug('Ably connection closed');
+// Close WebSocket connection
+export function closeWebSocketConnection() {
+  if (wsInstance && wsInstance.readyState !== WebSocket.CLOSED) {
+    wsInstance.close(1000, 'Normal closure');
+    wsInstance = null;
+    wsChannels = {};
+    logDebug('WebSocket connection closed');
   }
 }
 
-// Force reconnection to Ably
-export function reconnectAbly() {
-  if (!ablyInstance) {
-    logDebug('Creating new Ably instance', 'info');
-    return getAblyInstance();
+// Force reconnection to WebSocket
+export function reconnectWebSocket() {
+  if (wsInstance && wsInstance.readyState === WebSocket.OPEN) {
+    logDebug('Forcing WebSocket reconnection', 'info');
+    wsInstance.close(1000, 'Reconnect requested');
+    wsInstance = null;
   }
-  
-  try {
-    const currentState = ablyInstance.connection.state;
-    logDebug(`Forcing Ably reconnection (current state: ${currentState})`, 'info');
-    
-    if (currentState === 'failed' || currentState === 'suspended' || currentState === 'disconnected') {
-      ablyInstance.connection.connect();
-    } else if (currentState === 'connected') {
-      // If already connected, cycle the connection to ensure fresh state
-      ablyInstance.connection.once('disconnected', () => {
-        setTimeout(() => ablyInstance.connection.connect(), 1000);
-      });
-      ablyInstance.connection.close();
-    }
-    
-    return ablyInstance;
-  } catch (error) {
-    logDebug(`Error reconnecting to Ably: ${error.message}`, 'error');
-    
-    // Recreate instance completely if there's an error
-    ablyInstance = null;
-    return getAblyInstance();
-  }
+ 
+  return getWebSocketInstance();
 }
 
-// Monitor XHR requests to catch and log Ably errors
-export function setupXHRErrorMonitoring() {
-  if (typeof window === 'undefined' || !window.XMLHttpRequest) return;
-  
-  // Store the original open method
-  const originalOpen = XMLHttpRequest.prototype.open;
-  
-  // Override the open method to track Ably requests
-  XMLHttpRequest.prototype.open = function(method, url, async, user, password) {
-    // Add additional event listeners for Ably requests
-    if (url && (url.includes('ably') || url.includes('/ably/'))) {
-      this.addEventListener('error', function(event) {
-        const requestInfo = {
-          method,
-          url,
-          async,
-          readyState: this.readyState,
-          status: this.status,
-          statusText: this.statusText,
-          responseType: this.responseType,
-          eventType: event.type,
-          timestamp: new Date().toISOString()
-        };
-        
-        logDebug(`XHR Error Detail: ${JSON.stringify(requestInfo)}`, 'error');
-        
-        // Check for CORS or network issues
-        if (this.status === 0) {
-          logDebug('Possible CORS issue or network failure', 'error');
-          if (isInDiscordEnvironment()) {
-            logDebug('In Discord environment - please check URL mappings', 'warning');
-          }
-        }
-      });
-      
-      this.addEventListener('load', function() {
-        if (this.status >= 400) {
-          const requestInfo = {
-            method,
-            url,
-            async,
-            readyState: this.readyState,
-            status: this.status,
-            statusText: this.statusText,
-            responseType: this.responseType,
-            timestamp: new Date().toISOString()
-          };
-          
-          logDebug(`Ably HTTP Error: ${JSON.stringify(requestInfo)}`, 'error');
-          try {
-            logDebug(`Response: ${this.responseText}`, 'error');
-          } catch (e) {
-            // Response might not be available
-          }
-        }
-      });
-    }
-    
-    // Call the original method
-    return originalOpen.apply(this, arguments);
-  };
-  
-  logDebug('XHR monitoring for Ably requests enabled', 'info');
-} 
+// Alias functions to maintain compatibility with existing code
+export const getAblyInstance = getWebSocketInstance;
+export const getAblyChannel = getWebSocketChannel;
+export const closeAblyConnection = closeWebSocketConnection;
+export const reconnectAbly = reconnectWebSocket;
