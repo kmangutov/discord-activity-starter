@@ -1,4 +1,4 @@
-import { DiscordSDK, Events } from "@discord/embedded-app-sdk";
+import { DiscordSDK, Events, patchUrlMappings } from "@discord/embedded-app-sdk";
 import GameCanvas from './GameCanvas.js';
 import DotGame from './DotGame.js';
 import rocketLogo from '/rocket.png';
@@ -7,7 +7,8 @@ import {
   setupConsoleOverrides, 
   renderParticipants, 
   createDebugConsole,
-  getAblyInstance
+  getAblyInstance,
+  isInDiscordEnvironment
 } from './utils.js';
 import "./style.css";
 
@@ -33,7 +34,7 @@ const getWebSocketUrl = () => {
 const discordSdk = new DiscordSDK(import.meta.env.DISCORD_CLIENT_ID);
 
 // Initialize the app
-document.addEventListener('DOMContentLoaded', () => {
+document.addEventListener('DOMContentLoaded', async () => {
   // Set up the app container
   document.querySelector('#app').innerHTML = `
     <div id="app-content"></div>
@@ -50,6 +51,24 @@ document.addEventListener('DOMContentLoaded', () => {
   // Log initial info
   logDebug('Application initialized');
   logDebug(`Discord instanceId: ${discordSdk.instanceId}`);
+  
+  // Apply URL mappings for Discord sandbox (for Ably)
+  try {
+    // Check if we're in Discord's environment
+    const isProd = isInDiscordEnvironment();
+    
+    if (isProd) {
+      logDebug('Running in Discord - applying URL mappings for Ably');
+      // Use the patchUrlMappings API to route Ably requests through Discord's proxy
+      await patchUrlMappings([
+        { prefix: '/ably', target: 'realtime.ably.io' },
+        { prefix: '/ably-rest', target: 'rest.ably.io' }
+      ]);
+      logDebug('URL mappings applied successfully');
+    }
+  } catch (error) {
+    logDebug(`Failed to apply URL mappings: ${error.message}`, 'error');
+  }
   
   // Initialize Ably early
   try {

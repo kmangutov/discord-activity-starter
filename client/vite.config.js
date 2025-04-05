@@ -9,7 +9,7 @@ export default defineConfig(({ mode }) => {
   const ablyApiKey = env.ABLY_API_KEY || 'wJCxmg.MM9QRw:YCEe19Xuz85-vFqXmcHwSHavTTDYAX542v7tiSCSR9o';
   const discordClientId = env.VITE_DISCORD_CLIENT_ID || env.DISCORD_CLIENT_ID;
 
-  console.log('Using ABLY_API_KEY:', ablyApiKey.split(':')[0] + '...');
+  // Removed API key logging for security
   console.log('Using DISCORD_CLIENT_ID:', discordClientId);
 
   return {

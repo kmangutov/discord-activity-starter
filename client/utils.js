@@ -263,6 +263,13 @@ export function getEnvVariable(key, fallback = null) {
   return fallback;
 }
 
+// Check if running in Discord environment
+export function isInDiscordEnvironment() {
+  return typeof window !== 'undefined' && 
+         window.discordSdk && 
+         window.discordSdk.isInDiscord;
+}
+
 // Ably connection singleton
 let ablyInstance = null;
 
@@ -274,14 +281,32 @@ export function getAblyInstance() {
   
   const apiKey = getEnvVariable('ABLY_API_KEY', 'wJCxmg.MM9QRw:YCEe19Xuz85-vFqXmcHwSHavTTDYAX542v7tiSCSR9o');
   
-  logDebug(`Initializing Ably with API key: ${apiKey.split(':')[0]}...`);
-  
   try {
-    ablyInstance = new Ably.Realtime({
+    // Check if we're in Discord to use the mapped URLs
+    const isInDiscord = isInDiscordEnvironment();
+    
+    // Configuration for Ably
+    const config = {
       key: apiKey,
       clientId: `user-${Date.now()}`, // Generate unique client ID
-      echoMessages: false
-    });
+      echoMessages: false,
+      autoConnect: true,
+      disconnectedRetryTimeout: 5000, // 5 seconds retry
+      suspendedRetryTimeout: 15000,   // 15 seconds retry after suspended
+      httpRequestTimeout: 10000,      // 10 seconds timeout for HTTP requests
+      maxNetworkRetries: 5            // Maximum network retries
+    };
+    
+    // If in Discord, use the mapped URLs
+    if (isInDiscord) {
+      logDebug('Using Discord-mapped URLs for Ably');
+      config.realtimeHost = '/ably';
+      config.restHost = '/ably-rest';
+      config.port = 443;
+      config.tls = true;
+    }
+    
+    ablyInstance = new Ably.Realtime(config);
     
     // Add connection state change listener
     ablyInstance.connection.on('connected', () => {
@@ -292,13 +317,29 @@ export function getAblyInstance() {
       logDebug('Ably disconnected', 'warning');
     });
     
+    ablyInstance.connection.on('suspended', () => {
+      logDebug('Ably connection suspended - will automatically retry', 'warning');
+    });
+    
     ablyInstance.connection.on('failed', (err) => {
       logDebug(`Ably connection failed: ${err?.message || 'Unknown error'}`, 'error');
+      // Force reconnection on failure
+      setTimeout(() => {
+        logDebug('Attempting to reconnect to Ably...', 'info');
+        if (ablyInstance) {
+          ablyInstance.connection.connect();
+        }
+      }, 5000);
     });
     
     // Handle connection errors
     ablyInstance.connection.on('error', (err) => {
       logDebug(`Ably error: ${err?.message || 'Unknown error'}`, 'error');
+      
+      // Check for specific XHR error and handle accordingly
+      if (err?.message?.includes('XHR') || err?.message?.includes('network')) {
+        logDebug('Network issue detected - will attempt to reconnect', 'warning');
+      }
     });
     
     return ablyInstance;
@@ -353,5 +394,36 @@ export function closeAblyConnection() {
     ablyInstance.connection.close();
     ablyInstance = null;
     logDebug('Ably connection closed');
+  }
+}
+
+// Force reconnection to Ably
+export function reconnectAbly() {
+  if (!ablyInstance) {
+    logDebug('Creating new Ably instance', 'info');
+    return getAblyInstance();
+  }
+  
+  try {
+    const currentState = ablyInstance.connection.state;
+    logDebug(`Forcing Ably reconnection (current state: ${currentState})`, 'info');
+    
+    if (currentState === 'failed' || currentState === 'suspended' || currentState === 'disconnected') {
+      ablyInstance.connection.connect();
+    } else if (currentState === 'connected') {
+      // If already connected, cycle the connection to ensure fresh state
+      ablyInstance.connection.once('disconnected', () => {
+        setTimeout(() => ablyInstance.connection.connect(), 1000);
+      });
+      ablyInstance.connection.close();
+    }
+    
+    return ablyInstance;
+  } catch (error) {
+    logDebug(`Error reconnecting to Ably: ${error.message}`, 'error');
+    
+    // Recreate instance completely if there's an error
+    ablyInstance = null;
+    return getAblyInstance();
   }
 } 

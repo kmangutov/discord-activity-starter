@@ -8,7 +8,6 @@ async function testAbly() {
   try {
     // Get API key from environment or use fallback
     const apiKey = import.meta.env.ABLY_API_KEY || 'wJCxmg.MM9QRw:YCEe19Xuz85-vFqXmcHwSHavTTDYAX542v7tiSCSR9o';
-    console.log('Using API key:', apiKey.split(':')[0] + '...');
     
     // Create Ably client
     const ably = new Ably.Realtime({

@@ -8,7 +8,8 @@ import {
   getAblyChannel, 
   subscribeToChannel, 
   publishToChannel, 
-  closeAblyConnection 
+  closeAblyConnection,
+  reconnectAbly as reconnectAblyUtil
 } from './utils.js';
 
 class GameCanvas {
@@ -93,6 +94,14 @@ class GameCanvas {
       logDebug(`Failed to connect to Ably: ${error.message}`, 'error');
       this.setStatus(`Connection error: ${error.message}`);
       this.showRetryButton();
+      
+      // Auto-retry once after 5 seconds
+      setTimeout(() => {
+        if (!this.isConnected) {
+          logDebug('Auto-retrying Ably connection...', 'info');
+          this.reconnectAbly();
+        }
+      }, 5000);
     }
   }
   
@@ -227,13 +236,36 @@ class GameCanvas {
     retryButton.className = 'canvas-button retry-button';
     retryButton.style.marginTop = '10px';
     retryButton.addEventListener('click', () => {
-      this.connectAbly();
+      retryButton.textContent = 'Reconnecting...';
+      retryButton.disabled = true;
+      this.reconnectAbly();
+      
+      // Re-enable button after a delay
+      setTimeout(() => {
+        retryButton.textContent = 'Retry Connection';
+        retryButton.disabled = false;
+      }, 3000);
     });
     
     // Add to toolbar if it doesn't already have a retry button
     const toolbar = this.container.querySelector('.canvas-toolbar');
     if (toolbar && !toolbar.querySelector('.retry-button')) {
       toolbar.appendChild(retryButton);
+    }
+  }
+  
+  reconnectAbly() {
+    this.setStatus('Attempting to reconnect...');
+    
+    try {
+      // Use the imported reconnectAbly from utils.js
+      reconnectAblyUtil();
+      
+      // Try to reconnect with a new channel
+      setTimeout(() => this.connectAbly(), 1000);
+    } catch (error) {
+      logDebug(`Error during reconnection: ${error.message}`, 'error');
+      this.setStatus(`Reconnection failed: ${error.message}`);
     }
   }
   
