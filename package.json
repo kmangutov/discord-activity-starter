@@ -1,0 +1,14 @@
+{
+  "name": "viber",
+  "version": "1.0.0",
+  "description": "Vite app with Express backend",
+  "type": "module",
+  "scripts": {
+    "start": "node server/server.js",
+    "build": "cd client && npm install && npm run build",
+    "dev": "concurrently \"cd server && npm run dev\" \"cd client && npm run dev\""
+  },
+  "dependencies": {
+    "concurrently": "^8.0.0"
+  }
+} 

@@ -1,13 +1,23 @@
 import express from "express";
 import dotenv from "dotenv";
 import fetch from "node-fetch";
+import path from 'path';
+import { fileURLToPath } from 'url';
+
 dotenv.config({ path: "../.env" });
 
 const app = express();
-const port = 3001;
+const port = process.env.PORT || 3001;
+
+// Needed to get __dirname in ES module
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 // Allow express to parse JSON bodies
 app.use(express.json());
+
+// Serve static files from Vite build
+app.use(express.static(path.join(__dirname, '../client/dist')));
 
 app.post("/api/token", async (req, res) => {
   
@@ -32,6 +42,13 @@ app.post("/api/token", async (req, res) => {
   res.send({access_token});
 });
 
+// Fallback to index.html for SPA routing
+app.get('*', (req, res) => {
+  // Don't redirect API requests
+  if (req.path.startsWith('/api')) return;
+  res.sendFile(path.join(__dirname, '../client/dist/index.html'));
+});
+
 app.listen(port, () => {
-  console.log(`Server listening at http://localhost:${port}`);
+  console.log(`Server listening on port ${port}`);
 });
