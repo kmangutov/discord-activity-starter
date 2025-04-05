@@ -86,3 +86,38 @@ button:focus-visible {
     background-color: #f9f9f9;
   }
 }
+
+.participants-container {
+  margin-top: 20px;
+}
+
+.participants-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 10px;
+}
+
+.participant {
+  display: flex;
+  align-items: center;
+  padding: 8px 12px;
+  background-color: rgba(79, 84, 92, 0.16);
+  border-radius: 8px;
+  transition: background-color 0.2s;
+}
+
+.participant:hover {
+  background-color: rgba(79, 84, 92, 0.24);
+}
+
+.participant-avatar {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  margin-right: 10px;
+}
+
+.participant-name {
+  font-weight: 500;
+}
