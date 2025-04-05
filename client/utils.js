@@ -294,7 +294,10 @@ export function getAblyInstance() {
       disconnectedRetryTimeout: 5000, // 5 seconds retry
       suspendedRetryTimeout: 15000,   // 15 seconds retry after suspended
       httpRequestTimeout: 10000,      // 10 seconds timeout for HTTP requests
-      maxNetworkRetries: 5            // Maximum network retries
+      maxNetworkRetries: 5,            // Maximum network retries
+      transportParams: {
+        internetUpUrl: null  // Skip internet-up check that causes XHR errors
+      }
     };
     
     // If in Discord, use the mapped URLs
