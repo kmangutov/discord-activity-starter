@@ -419,17 +419,31 @@ export function getWebSocketInstance() {
     // Use different URL construction if in Discord environment
     let finalWsUrl;
     if (isInDiscord) {
-      // For Discord, use the current hostname with /ws path
-      // This works with Discord's URL mapping system
-      const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-      finalWsUrl = `${protocol}//${window.location.host}/ws`;
+      // For Discord, we have two options:
+      // 1. Use the current hostname with /ws path (works if URL mapping is set up correctly)
+      // 2. Try the special Discord WebSocket format (may be needed in some environments)
+      
+      // Check if we're on the discordsays.com domain, which indicates we're in the Discord sandbox
+      const isDiscordSays = window.location.hostname.includes('discordsays.com');
+      
+      if (isDiscordSays) {
+        // If we're on discordsays.com, we need to use the full hostname
+        const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+        finalWsUrl = `${protocol}//${window.location.host}/ws`;
+        logDebug(`Using Discord sandbox WebSocket URL: ${finalWsUrl}`);
+      } else {
+        // For Discord production, we use the plain /ws path which Discord maps
+        finalWsUrl = '/ws';
+        logDebug(`Using Discord production WebSocket URL: ${finalWsUrl}`);
+      }
     } else {
       finalWsUrl = wsUrl;
+      logDebug(`Using direct WebSocket URL: ${finalWsUrl}`);
     }
    
     notifyStateChange(CONNECTION_STATES.CONNECTING);
     logDebug(`Connecting to WebSocket: ${finalWsUrl}`);
-    logDebug(`Connection details: Discord environment=${isInDiscord}, Network online=${navigator.onLine}, Protocol=${window.location.protocol}`);
+    logDebug(`Connection details: Discord environment=${isInDiscord}, Network online=${navigator.onLine}, Protocol=${window.location.protocol}, Location=${window.location.href}`);
    
     // Create new WebSocket instance
     wsInstance = new WebSocket(finalWsUrl);

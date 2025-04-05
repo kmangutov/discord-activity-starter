@@ -68,25 +68,37 @@ document.addEventListener('DOMContentLoaded', async () => {
   logDebug('Application initialized');
   logDebug(`Discord instanceId: ${discordSdk.instanceId}`);
   
-  // Apply URL mappings for Discord sandbox
+  // Apply URL mappings for Discord sandbox - MUST be done before any WebSocket connections
   try {
     // Check if we're in Discord's environment
     const isProd = isInDiscordEnvironment();
     
     if (isProd) {
       logDebug('Running in Discord - applying URL mappings');
+      logDebug('Current URL before mapping: ' + window.location.href);
+      
       // Use the patchUrlMappings API to route requests through Discord's proxy
       await patchUrlMappings([
         // Single root mapping that handles all paths including WebSockets
         { prefix: '/', target: 'brebiskingactivity-production.up.railway.app' }
       ]);
+      
       logDebug('URL mappings applied successfully');
+      logDebug('URL after mapping: ' + window.location.href);
+      
+      // IMPORTANT: Force a very short delay to allow mappings to take effect
+      await new Promise(resolve => setTimeout(resolve, 100));
+    } else {
+      logDebug('Not running in Discord environment, skipping URL mappings');
     }
   } catch (error) {
     logDebug(`Failed to apply URL mappings: ${error.message}`, 'error');
+    if (error.stack) {
+      logDebug(`Error stack: ${error.stack}`, 'error');
+    }
   }
   
-  // Initialize WebSocket connection early
+  // Initialize WebSocket connection only after mappings are applied
   try {
     logDebug('Initializing WebSocket connection...', 'info');
     
@@ -169,41 +181,81 @@ document.addEventListener('DOMContentLoaded', async () => {
 });
 
 async function setupDiscordSdk() {
-  await discordSdk.ready();
-  logDebug("Discord SDK is ready");
+  try {
+    logDebug("Waiting for Discord SDK to be ready...");
+    await discordSdk.ready();
+    logDebug("Discord SDK is ready");
+    
+    // Check if isInDiscord property is set correctly
+    logDebug(`Discord environment check: isInDiscord=${discordSdk.isInDiscord}`);
+    
+    // Verify URL mappings work by testing window.location
+    logDebug(`Current location: protocol=${window.location.protocol}, host=${window.location.host}, pathname=${window.location.pathname}`);
 
-  // Authorize with Discord Client
-  const { code } = await discordSdk.commands.authorize({
-    client_id: import.meta.env.VITE_DISCORD_CLIENT_ID,
-    response_type: "code",
-    state: "",
-    prompt: "none",
-    scope: [
-      "identify",
-      "guilds",
-      "applications.commands"
-    ],
-  });
+    // Authorize with Discord Client
+    logDebug("Authorizing with Discord client...");
+    const { code } = await discordSdk.commands.authorize({
+      client_id: import.meta.env.VITE_DISCORD_CLIENT_ID,
+      response_type: "code",
+      state: "",
+      prompt: "none",
+      scope: [
+        "identify",
+        "guilds",
+        "applications.commands"
+      ],
+    });
+    logDebug("Authorization successful, received code");
 
-  // Retrieve an access_token from your activity's server
-  const response = await fetch("/.proxy/api/token", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      code,
-    }),
-  });
-  const { access_token } = await response.json();
+    // Retrieve an access_token from your activity's server
+    logDebug("Retrieving access token...");
+    const response = await fetch("/.proxy/api/token", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        code,
+      }),
+    });
+    
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(`Token fetch failed with status ${response.status}: ${errorText}`);
+    }
+    
+    const tokenData = await response.json();
+    logDebug("Access token retrieved successfully");
+    
+    if (!tokenData.access_token) {
+      throw new Error("No access_token in response: " + JSON.stringify(tokenData));
+    }
+    
+    const { access_token } = tokenData;
 
-  // Authenticate with Discord client (using the access_token)
-  auth = await discordSdk.commands.authenticate({
-    access_token,
-  });
+    // Authenticate with Discord client (using the access_token)
+    logDebug("Authenticating with Discord...");
+    auth = await discordSdk.commands.authenticate({
+      access_token,
+    });
 
-  if (auth == null) {
-    throw new Error("Authenticate command failed");
+    if (auth == null) {
+      throw new Error("Authenticate command failed with null response");
+    }
+    
+    logDebug("Authentication successful");
+    
+    // Reconnect WebSocket after authentication to ensure proper connectivity
+    logDebug("Reconnecting WebSocket after Discord auth...");
+    reconnectWebSocket();
+    
+    return auth;
+  } catch (error) {
+    logDebug(`Discord SDK setup error: ${error.message}`, 'error');
+    if (error.stack) {
+      logDebug(`Error stack: ${error.stack}`, 'error');
+    }
+    throw error;
   }
 }
 
