@@ -16,141 +16,356 @@ A "sidecart" framework for easily adding and hosting multiplayer games in Discor
 
 To add a new game to the framework, follow these steps:
 
-1. **Create server-side game implementation**:
-   ```javascript
-   // server/games/YourGame.js
-   import { GameInterface } from './GameInterface.js';
-   
-   class YourGame extends GameInterface {
-     // Required static properties for registry
-     static id = 'yourgame';
-     static name = 'Your Game Name';
-     static description = 'Description of your game';
-     static minPlayers = 1;
-     static maxPlayers = 8;
-     static thumbnail = '/thumbnails/yourgame.png';
-     
-     constructor(instanceId, activityId = null) {
-       super(instanceId, activityId);
-       
-       // Initialize game-specific state
-       this.state = {
-         ...this.state,
-         // Your game state properties
-       };
-     }
-     
-     // Handle incoming messages
-     onMessage(socket, messageData) {
-       const { type, payload } = messageData;
-       
-       switch (type) {
-         case 'your_action':
-           // Handle action
-           break;
-         
-         default:
-           console.log(`Unknown message type: ${type}`);
-       }
-     }
-     
-     // Add game-specific methods
-   }
-   
-   export { YourGame };
+### 1. Create Server-Side Game Implementation
+
+Create a file in `server/games/YourGame.js` that implements the server-side `GameInterface`:
+
+```javascript
+// server/games/YourGame.js
+import { GameInterface } from './GameInterface.js';
+import { getRandomColor } from '../utils.js'; // Optional utility
+
+class YourGame extends GameInterface {
+  // Required static properties for the game registry
+  static id = 'yourgame';            // Unique identifier - must match client-side!
+  static name = 'Your Game Name';    // Display name shown in the lobby
+  static description = 'Description of your game';
+  static minPlayers = 1;             // Minimum players needed
+  static maxPlayers = 8;             // Maximum players supported
+  static thumbnail = '/thumbnails/yourgame.png'; // Path to game thumbnail
+  
+  constructor(instanceId, activityId = null) {
+    super(instanceId, activityId);
+    
+    // Initialize game-specific state - will be synced to clients
+    this.state = {
+      ...this.state, // Include base state (lastUpdate)
+      yourGameState: {}, // Your game-specific state
+    };
+    
+    console.log(`YourGame instance created: ${instanceId}`);
+  }
+  
+  // Handle incoming messages from clients
+  onMessage(socket, messageData) {
+    const { type, payload } = messageData;
+    
+    switch (type) {
+      case 'your_action':
+        // Handle the action
+        this.handleYourAction(socket.userId, payload);
+        break;
+      
+      default:
+        console.log(`Unknown message type: ${type}`);
+    }
+  }
+  
+  // Handle a player leaving the game
+  onLeave(socket, userId) {
+    // Clean up player-specific state when they leave
+    console.log(`Player ${userId} left YourGame`);
+    
+    // Update game state as needed
+    this.state.lastUpdate = Date.now();
+    
+    // Notify other players if needed
+    this.broadcast({
+      type: 'player_left',
+      userId: userId
+    });
+  }
+  
+  // Example game-specific method
+  handleYourAction(userId, actionData) {
+    // Process the action
+    console.log(`Player ${userId} performed action:`, actionData);
+    
+    // Update game state
+    // this.state.yourGameState.someProperty = actionData.value;
+    this.state.lastUpdate = Date.now();
+    
+    // Broadcast the action to all clients
+    this.broadcast({
+      type: 'action_performed',
+      userId: userId,
+      action: actionData
+    });
+  }
+}
+
+export { YourGame };
+```
+Note: the websocket connection may be flaky/do reconnects
+
+### 2. Create Client-Side Game Implementation
+
+Create a file in `client/game_frontends/YourGameFrontend.js` that implements the client-side `GameInterface`:
+
+```javascript
+// client/game_frontends/YourGameFrontend.js
+import GameInterface from './GameInterface.js';
+import { 
+  logDebug, 
+  getRandomColor, 
+  subscribeToChannel, 
+  publishToChannel 
+} from '../utils-websocket.js';
+
+class YourGameFrontend extends GameInterface {
+  constructor(container, instanceId, userId, onLeaveCallback) {
+    super(container, instanceId, userId, onLeaveCallback);
+    
+    // Initialize game-specific properties
+    this.gameState = {};
+    
+    // Create UI and connect WebSocket
+    this.createUI();
+    this.connectWebSocket();
+    
+    logDebug(`YourGame initialized for user: ${userId} in instance: ${instanceId}`);
+  }
+  
+  // IMPORTANT: Must return the same ID as server-side static id property
+  getGameId() {
+    return 'yourgame';
+  }
+  
+  // Create the game's UI
+  createUI() {
+    this.container.innerHTML = `
+      <div class="your-game">
+        <h2>Your Game Title</h2>
+        <div class="game-area">
+          <!-- Game-specific UI elements -->
+        </div>
+        <div class="game-controls">
+          <button id="your-action-button">Perform Action</button>
+          <button id="leave-game" class="leave-button">Leave Game</button>
+        </div>
+        <div class="game-status">Connecting...</div>
+      </div>
+    `;
+    
+    // Store references to important elements
+    this.gameArea = this.container.querySelector('.game-area');
+    this.statusDisplay = this.container.querySelector('.game-status');
+    
+    // Set up event listeners
+    this.container.querySelector('#your-action-button').addEventListener('click', () => {
+      this.performAction();
+    });
+    
+    this.container.querySelector('#leave-game').addEventListener('click', () => {
+      this.handleLeaveGame();
+    });
+  }
+  
+  // Subscribe to WebSocket events
+  async setupSubscriptions() {
+    if (!this.channel) return;
+    
+    // Handle state sync (receive full game state)
+    await subscribeToChannel(this.channel, 'state_sync', (event) => {
+      this.updateGameState(event.data.state);
+    });
+    
+    // Handle custom game events
+    await subscribeToChannel(this.channel, 'action_performed', (event) => {
+      const { userId, action } = event.data;
+      this.handleActionEvent(userId, action);
+    });
+    
+    // Handle player leaving
+    await subscribeToChannel(this.channel, 'player_left', (event) => {
+      const { userId } = event.data;
+      logDebug(`Player left: ${userId}`);
+      // Update UI to reflect player leaving
+    });
+  }
+  
+  // Update the game state and UI
+  updateGameState(state) {
+    this.gameState = state;
+    this.updateUI();
+    this.setStatus('Connected');
+  }
+  
+  // Update the UI based on current game state
+  updateUI() {
+    // Update your game display based on this.gameState
+    // For example:
+    // this.gameArea.innerHTML = `...`;
+  }
+  
+  // Example function to send an action to the server
+  performAction() {
+    if (!this.channel || !this.isConnected) {
+      this.setStatus('Not connected - cannot perform action');
+      return;
+    }
+    
+    const actionData = {
+      type: 'example_action',
+      value: Math.random()
+    };
+    
+    publishToChannel(this.channel, 'your_action', actionData);
+    this.setStatus('Action sent!');
+  }
+  
+  // Handle action events from other players
+  handleActionEvent(userId, action) {
+    logDebug(`Player ${userId} performed action: ${JSON.stringify(action)}`);
+    // Update UI to reflect the action
+  }
+  
+  // Display status messages
+  setStatus(message) {
+    if (this.statusDisplay) {
+      this.statusDisplay.textContent = message;
+    }
+  }
+  
+  // Clean up when game is destroyed
+  destroy() {
+    // Clean up any game-specific resources
+    
+    // Call parent destroy to handle WebSocket cleanup
+    super.destroy();
+  }
+}
+
+export default YourGameFrontend;
+```
+
+### 3. Register the Game on the Server
+
+Add the game to the server initialization in `server/server.js`:
+
+```javascript
+// In server/server.js
+import { YourGame } from './games/YourGame.js';
+import { registerGame } from '../shared/game_registry.js';
+
+// Register your game (add this alongside the other registerGame calls)
+registerGame(YourGame);
+```
+
+### 4. Integrate with main.js for Game Instantiation
+
+Update `client/main.js` to import and handle your new game:
+
+```javascript
+// At the top of client/main.js
+import YourGameFrontend from './game_frontends/YourGameFrontend.js';
+
+// Then find the startGame function and add your game handler:
+function startGame(gameId) {
+  // ... existing code ...
+  
+  // Initialize the appropriate game
+  if (gameId === 'canvas') {
+    // ... existing code for canvas game ...
+  } else if (gameId === 'dotgame') {
+    // ... existing code for dot game ...
+  } else if (gameId === 'yourgame') {
+    try {
+      currentGame = new YourGameFrontend(
+        gameContainer,
+        discordSdk.instanceId,
+        userId,
+        () => showLobby() // Callback to return to lobby
+      );
+    } catch (error) {
+      logDebug(`Error initializing Your Game: ${error.message}`, 'error');
+      showGameError(gameContainer, error, gameId);
+    }
+  } else {
+    // Handle unknown game type
+    showGameError(gameContainer, new Error(`Unknown game type: ${gameId}`), gameId);
+  }
+  
+  // ... rest of the function ...
+}
+```
+
+### 5. Add Game Thumbnail (Optional)
+
+Create a thumbnail for your game at `client/dist/thumbnails/yourgame.png`.
+
+### 6. Testing Your Game
+
+The server will automatically list your game in the `/api/games` endpoint once it's registered, and the client will display it in the lobby UI. To test your game:
+
+1. **Run the server locally:**
+   ```
+   cd server
+   npm install
+   npm start
    ```
 
-2. **Create client-side game implementation**:
-   ```javascript
-   // client/game_frontends/YourGameFrontend.js
-   import GameInterface from './GameInterface.js';
-   
-   class YourGameFrontend extends GameInterface {
-     constructor(container, instanceId, userId, onLeaveCallback) {
-       super(container, instanceId, userId, onLeaveCallback);
-       
-       // Initialize game-specific properties
-       this.gameState = {};
-     }
-     
-     getGameId() {
-       return 'yourgame';
-     }
-     
-     createUI() {
-       // Create game UI elements
-       this.container.innerHTML = `
-         <div class="your-game">
-           <!-- Game elements -->
-           <button id="leave-game">Leave Game</button>
-         </div>
-       `;
-       
-       // Set up event listeners
-       document.getElementById('leave-game').addEventListener('click', () => {
-         this.handleLeaveGame();
-       });
-     }
-     
-     async setupSubscriptions() {
-       if (!this.channel) return;
-       
-       // Subscribe to game events
-       await subscribeToChannel(this.channel, 'state_sync', (event) => {
-         this.updateGameState(event.data.state);
-       });
-       
-       // Add more subscriptions as needed
-     }
-     
-     // Add game-specific methods
-   }
-   
-   export default YourGameFrontend;
+2. **Run the client in development mode:**
+   ```
+   cd client
+   npm install
+   npm run dev
    ```
 
-3. **Register the game in the server**:
-   Update your server initialization to import and register the new game:
-   ```javascript
-   // In server/server.js or where you initialize your server
-   import { YourGame } from './games/YourGame.js';
-   import { registerGame } from '../shared/game_registry.js';
-   
-   // Register your game
-   registerGame(YourGame);
-   ```
+3. **Configure Discord Application:**
+   - Set up appropriate URL mappings in your Discord Developer Portal
+   - Ensure the activity points to your local server
+   - Launch the activity in Discord to test
 
-   This should also be done in the frontend maybe? idk
+### Common Issues & Troubleshooting
 
-4. **Test your game locally**:
-   - Run your local development server
-   - Create or update your Discord Application with appropriate URL mappings
-   - Launch your Activity in Discord to test
+1. **Game doesn't appear in the lobby:**
+   - Check server logs to ensure your game was registered
+   - Verify that game IDs match exactly between client and server implementations
+   - Check the `/api/games` endpoint response format (should be `{ "games": [...] }`)
 
-Currently, the deployment process is being solidified, but you can test your games by either running locally with appropriate Discord Application settings or by pushing to the main branch to deploy through Discord's infrastructure.
+2. **Cannot connect to game:**
+   - Verify WebSocket connections are established
+   - Check that channel names match between client and server 
+   - Check for console errors related to WebSocket messaging
+
+3. **Game state not syncing:**
+   - Ensure your game properly extends GameInterface
+   - Verify the message types match between client and server
+   - Check that you're using the broadcast method for server-to-client messages
 
 ## Project Structure
 
+The updated project structure after refactoring:
+
 ```
 .
-├── client/                 # Frontend Discord Activity client
-│   ├── dist/               # Built client files
-│   ├── GameCanvas.js       # Example canvas drawing game
-│   ├── DotGame.js          # Example dot visualization game
-│   ├── main.js             # Main client application
-│   ├── utils-websocket.js  # WebSocket client utilities
-│   ├── style.css           # Client styles
-│   └── index.html          # Client entry point
+├── client/                    # Frontend Discord Activity client
+│   ├── dist/                  # Built client files
+│   │   └── thumbnails/        # Game thumbnail images
+│   ├── game_frontends/        # Client-side game implementations
+│   │   ├── GameInterface.js   # Base interface for client games
+│   │   ├── CanvasGameFrontend.js  # Canvas drawing game
+│   │   └── DotGameFrontend.js # Dot visualization game
+│   ├── main.js                # Main client application
+│   ├── utils-websocket.js     # WebSocket client utilities
+│   ├── style.css              # Client styles
+│   └── index.html             # Client entry point
 │
-├── server/                 # Backend server
-│   ├── server.js           # Express & WebSocket server
-│   ├── rooms.js            # Game room management
-│   ├── games/              # Game implementations
-│   │   └── DotGame.js      # Server-side game logic for DotGame
-│   └── game-example.js     # Template for creating new games
+├── server/                    # Backend server
+│   ├── server.js              # Express & WebSocket server
+│   ├── rooms.js               # Game room management
+│   ├── games/                 # Server-side game implementations
+│   │   ├── GameInterface.js   # Base interface for server games
+│   │   ├── CanvasGame.js      # Server-side canvas game logic
+│   │   └── DotGame.js         # Server-side dot game logic
+│   └── utils.js               # Server utilities
 │
-├── DISCORD_URL_MAPPINGS.md # Guide for Discord URL mappings
-└── package.json            # Root package.json
+├── shared/                    # Shared code between client and server
+│   └── game_registry.js       # Game registration system
+│
+├── DISCORD_URL_MAPPINGS.md    # Guide for Discord URL mappings
+└── package.json               # Root package.json
 ```
 
 ## How It Works
@@ -160,16 +375,6 @@ Currently, the deployment process is being solidified, but you can test your gam
 3. **WebSocket Communication**: Players in the same game automatically connect via WebSockets
 4. **Participant Tracking**: The framework handles tracking who's in each game
 5. **Game API**: Games use a consistent API to integrate with the framework
-
-## Adding a New Game
-
-To add a new game:
-
-1. Create a server-side game file in `server/games/`
-2. Create a client-side game file in `client/`
-3. Register the game in the main application
-
-The framework handles all the WebSocket connections, participant management, and game lifecycle.
 
 ## Deployment
 

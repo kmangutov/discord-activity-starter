@@ -9,7 +9,7 @@ import fetch from "node-fetch";
 import path from 'path';
 import { fileURLToPath } from 'url';
 import http from 'http';
-import { WebSocketServer } from 'ws';
+import { WebSocketServer, WebSocket } from 'ws';
 import { getOrCreateRoom, leaveRoom } from './rooms.js';
 import { registerGame, getRegisteredGames, getGameInstance } from '../shared/game_registry.js';
 
