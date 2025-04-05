@@ -234,4 +234,120 @@ export function setupWebSocketLogging(socket, prefix = '') {
   };
   
   return socket;
+}
+
+// Check if environment variables are properly loaded
+export function getEnvVariable(key, fallback = null) {
+  // First try import.meta.env for Vite
+  if (import.meta.env && import.meta.env[key]) {
+    return import.meta.env[key];
+  }
+  
+  // Try window.env for runtime injected env vars
+  if (window.env && window.env[key]) {
+    return window.env[key];
+  }
+  
+  // Try process.env for Node.js environment
+  if (typeof process !== 'undefined' && process.env && process.env[key]) {
+    return process.env[key];
+  }
+  
+  // Return fallback value if not found
+  logDebug(`Environment variable ${key} not found, using fallback value`, 'warning');
+  return fallback;
+}
+
+// Ably connection singleton
+let ablyInstance = null;
+
+// Initialize and get Ably singleton
+export function getAblyInstance() {
+  if (ablyInstance) {
+    return ablyInstance;
+  }
+  
+  const Ably = require('ably');
+  const apiKey = getEnvVariable('ABLY_API_KEY', 'wJCxmg.MM9QRw:YCEe19Xuz85-vFqXmcHwSHavTTDYAX542v7tiSCSR9o');
+  
+  logDebug(`Initializing Ably with API key: ${apiKey.split(':')[0]}...`);
+  
+  try {
+    ablyInstance = new Ably.Realtime({
+      key: apiKey,
+      clientId: `user-${Date.now()}`, // Generate unique client ID
+      echoMessages: false
+    });
+    
+    // Add connection state change listener
+    ablyInstance.connection.on('connected', () => {
+      logDebug('Ably connected successfully', 'info');
+    });
+    
+    ablyInstance.connection.on('disconnected', () => {
+      logDebug('Ably disconnected', 'warning');
+    });
+    
+    ablyInstance.connection.on('failed', (err) => {
+      logDebug(`Ably connection failed: ${err?.message || 'Unknown error'}`, 'error');
+    });
+    
+    // Handle connection errors
+    ablyInstance.connection.on('error', (err) => {
+      logDebug(`Ably error: ${err?.message || 'Unknown error'}`, 'error');
+    });
+    
+    return ablyInstance;
+  } catch (error) {
+    logDebug(`Failed to initialize Ably: ${error.message}`, 'error');
+    throw error;
+  }
+}
+
+// Get Ably channel with proper error handling
+export function getAblyChannel(channelId) {
+  try {
+    const ably = getAblyInstance();
+    logDebug(`Getting Ably channel: ${channelId}`);
+    return ably.channels.get(channelId);
+  } catch (error) {
+    logDebug(`Failed to get Ably channel ${channelId}: ${error.message}`, 'error');
+    throw error;
+  }
+}
+
+// Subscribe to an Ably channel with error handling
+export async function subscribeToChannel(channel, eventName, callback) {
+  try {
+    logDebug(`Subscribing to event '${eventName}' on channel '${channel.name}'`);
+    await channel.subscribe(eventName, (message) => {
+      logDebug(`Received '${eventName}' message: ${JSON.stringify(message.data)}`);
+      callback(message);
+    });
+    return true;
+  } catch (error) {
+    logDebug(`Failed to subscribe to ${eventName} on ${channel.name}: ${error.message}`, 'error');
+    return false;
+  }
+}
+
+// Publish to an Ably channel with error handling
+export async function publishToChannel(channel, eventName, data) {
+  try {
+    logDebug(`Publishing '${eventName}' message: ${JSON.stringify(data)}`);
+    await channel.publish(eventName, data);
+    return true;
+  } catch (error) {
+    logDebug(`Failed to publish to ${eventName} on ${channel.name}: ${error.message}`, 'error');
+    return false;
+  }
+}
+
+// Close Ably connection
+export function closeAblyConnection() {
+  if (ablyInstance) {
+    ablyInstance.connection.close();
+    ablyInstance = null;
+    logDebug('Ably connection closed');
+  }
 } 

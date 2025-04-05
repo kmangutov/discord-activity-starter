@@ -1,8 +1,15 @@
 /**
  * DotGame.js - Client-side dot visualization component
- * A simple multiplayer dot visualization that can be controlled via WebSocket
+ * A simple multiplayer dot visualization using Ably for real-time communication
  */
-import { logDebug, getRandomColor, checkWebSocketConnectivity, setupWebSocketLogging } from './utils.js';
+import { 
+  logDebug, 
+  getRandomColor, 
+  getAblyChannel, 
+  subscribeToChannel, 
+  publishToChannel, 
+  closeAblyConnection 
+} from './utils.js';
 
 class DotGame {
   constructor(container, instanceId, userId, onLeaveCallback) {
@@ -10,17 +17,16 @@ class DotGame {
     this.instanceId = instanceId;
     this.userId = userId;
     this.onLeaveCallback = onLeaveCallback;
-    this.socket = null;
+    this.channel = null;
     this.dots = new Map();
     this.userColor = getRandomColor();
-    this.reconnectAttempts = 0;
-    this.maxReconnectAttempts = 3;
+    this.isConnected = false;
     
     // Create UI components
     this.createUI();
     
-    // Test connectivity before attempting to connect
-    this.checkConnectivityAndConnect();
+    // Connect to Ably and setup the channel
+    this.connectAbly();
     
     // Log important game initialization info
     logDebug(`DotGame initialized for user: ${userId} in instance: ${instanceId}`);
@@ -62,171 +68,133 @@ class DotGame {
     this.setStatus('Connecting to dot game...');
   }
   
-  async checkConnectivityAndConnect() {
-    // Get WebSocket URL
-    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const wsUrl = `${protocol}//${window.location.host}`;
-    
-    this.setStatus('Testing WebSocket connectivity...');
-    
+  async connectAbly() {
     try {
-      // First check connectivity
-      await checkWebSocketConnectivity(wsUrl);
-      // If we get here, connectivity test passed
-      this.connectWebSocket();
-    } catch (error) {
-      logDebug(`WebSocket connectivity test failed: ${error.message}`, 'error');
-      this.setStatus(`Cannot connect to game server. Check your network connection.`);
+      this.setStatus('Connecting to Ably...');
       
-      // Add retry button
-      const retryButton = document.createElement('button');
-      retryButton.textContent = 'Retry Connection';
-      retryButton.className = 'canvas-button';
-      retryButton.style.marginTop = '10px';
-      retryButton.addEventListener('click', () => {
-        this.checkConnectivityAndConnect();
+      // Create channel name from instanceId to group users in same Discord activity
+      const channelName = `dotgame-${this.instanceId}`;
+      this.channel = getAblyChannel(channelName);
+      
+      // Subscribe to various event types
+      await this.setupSubscriptions();
+      
+      // Announce joining and request current state
+      this.sendJoinMessage();
+      
+      // Send initial position
+      this.sendPosition(Math.random() * 500, Math.random() * 300);
+      
+      this.isConnected = true;
+      this.setStatus('Connected to dot game');
+    } catch (error) {
+      logDebug(`Failed to connect to Ably: ${error.message}`, 'error');
+      this.setStatus(`Connection error: ${error.message}`);
+      this.showRetryButton();
+    }
+  }
+  
+  async setupSubscriptions() {
+    if (!this.channel) return;
+    
+    // Handle position updates from other users
+    await subscribeToChannel(this.channel, 'position_update', (message) => {
+      const data = message.data;
+      if (data.userId !== this.userId) { // Don't update our own dot twice
+        this.updateDot(
+          data.userId,
+          data.position.x,
+          data.position.y, 
+          data.position.color
+        );
+      }
+    });
+    
+    // Handle user join events
+    await subscribeToChannel(this.channel, 'user_joined', (message) => {
+      const data = message.data;
+      logDebug(`User joined: ${data.userId}`);
+      this.setStatus(`User joined: ${data.userId}`);
+      
+      // If we receive our own join message back, ignore it
+      if (data.userId === this.userId) return;
+      
+      // If this is a new user joining, send our current position to them
+      this.sendPosition(
+        this.dots.has(this.userId) 
+          ? parseFloat(this.dots.get(this.userId).style.left) + 10 // Adjust for centering
+          : Math.random() * 500,
+        this.dots.has(this.userId)
+          ? parseFloat(this.dots.get(this.userId).style.top) + 10 // Adjust for centering
+          : Math.random() * 300
+      );
+    });
+    
+    // Handle user leave events
+    await subscribeToChannel(this.channel, 'user_left', (message) => {
+      const data = message.data;
+      logDebug(`User left: ${data.userId}`);
+      this.setStatus(`User left: ${data.userId}`);
+      
+      // Remove the dot for this user
+      if (this.dots.has(data.userId)) {
+        this.dotDisplay.removeChild(this.dots.get(data.userId));
+        this.dots.delete(data.userId);
+      }
+    });
+    
+    // Handle state sync requests
+    await subscribeToChannel(this.channel, 'request_state', (message) => {
+      const data = message.data;
+      
+      // Only respond if we have our position and it's not our own request
+      if (data.userId !== this.userId && this.dots.has(this.userId)) {
+        const dot = this.dots.get(this.userId);
+        const x = parseFloat(dot.style.left) + 10; // Adjust for centering
+        const y = parseFloat(dot.style.top) + 10;  // Adjust for centering
+        
+        this.sendPosition(x, y);
+      }
+    });
+  }
+  
+  sendJoinMessage() {
+    publishToChannel(this.channel, 'user_joined', {
+      userId: this.userId,
+      timestamp: Date.now()
+    });
+    
+    // Request current state from other users
+    publishToChannel(this.channel, 'request_state', {
+      userId: this.userId,
+      timestamp: Date.now()
+    });
+  }
+  
+  sendLeaveMessage() {
+    if (this.channel && this.isConnected) {
+      publishToChannel(this.channel, 'user_left', {
+        userId: this.userId,
+        timestamp: Date.now()
       });
-      
-      // Add to controls if it doesn't already have a retry button
-      const controls = this.container.querySelector('.dot-game-controls');
-      if (controls && !controls.querySelector('.retry-button')) {
-        retryButton.classList.add('retry-button');
-        controls.appendChild(retryButton);
-      }
     }
   }
   
-  connectWebSocket() {
-    // Connect to the WebSocket server
-    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const wsUrl = `${protocol}//${window.location.host}`;
+  sendPosition(x, y) {
+    if (!this.channel || !this.isConnected) return;
     
-    logDebug(`Connecting to WebSocket at ${wsUrl}`);
+    publishToChannel(this.channel, 'position_update', {
+      userId: this.userId,
+      position: {
+        x: x,
+        y: y,
+        color: this.userColor
+      },
+      timestamp: Date.now()
+    });
     
-    try {
-      this.socket = new WebSocket(wsUrl);
-      
-      // Set up enhanced logging
-      setupWebSocketLogging(this.socket, 'DotGame: ');
-      
-      this.socket.onopen = () => {
-        this.reconnectAttempts = 0;
-        this.setStatus('Connected! Joining dot game...');
-        logDebug(`WebSocket connection established, joining room: ${this.instanceId}`);
-        
-        // Join the room with dotgame type
-        this.socket.send(JSON.stringify({
-          type: 'join_room',
-          instanceId: this.instanceId,
-          userId: this.userId,
-          gameType: 'dotgame'
-        }));
-        
-        // Also send our initial position
-        this.sendPosition(Math.random() * 500, Math.random() * 300);
-      };
-      
-      this.socket.onmessage = (event) => {
-        try {
-          const message = JSON.parse(event.data);
-          // Log incoming message types for debugging
-          logDebug(`Received message type: ${message.type}`);
-          this.handleMessage(message);
-        } catch (error) {
-          console.error('Error parsing WebSocket message:', error);
-          logDebug(`WebSocket message parse error: ${error.message}`, 'error');
-        }
-      };
-      
-      this.socket.onclose = (event) => {
-        logDebug(`WebSocket closed. Code: ${event.code}, Reason: ${event.reason}`, 'warning');
-        this.setStatus(`Disconnected from dot game (Code: ${event.code})`);
-        
-        // Try to reconnect if not intentionally closed
-        if (event.code !== 1000 && this.reconnectAttempts < this.maxReconnectAttempts) {
-          this.reconnectAttempts++;
-          const delay = this.reconnectAttempts * 1000;
-          this.setStatus(`Connection lost. Reconnecting in ${delay/1000}s...`);
-          logDebug(`Attempting reconnect ${this.reconnectAttempts}/${this.maxReconnectAttempts} in ${delay}ms`);
-          
-          setTimeout(() => {
-            this.connectWebSocket();
-          }, delay);
-        }
-      };
-      
-      this.socket.onerror = (error) => {
-        const errorDetail = JSON.stringify(error);
-        logDebug(`WebSocket error: ${errorDetail}`, 'error');
-        this.setStatus(`Connection error. Check console for details.`);
-        
-        // Log more helpful information for debugging
-        console.error('WebSocket error details:', {
-          url: wsUrl,
-          readyState: this.socket ? this.socket.readyState : 'socket not created',
-          instance: this.instanceId,
-          userId: this.userId
-        });
-      };
-    } catch (error) {
-      logDebug(`Failed to create WebSocket: ${error.message}`, 'error');
-      this.setStatus(`Failed to create WebSocket connection: ${error.message}`);
-    }
-  }
-  
-  handleMessage(message) {
-    try {
-      switch (message.type) {
-        case 'state_sync':
-          // Sync existing dots
-          logDebug(`Received state sync with ${message.state && message.state.positions ? Object.keys(message.state.positions).length : 0} positions`);
-          if (message.state && message.state.positions) {
-            for (const [participantId, position] of Object.entries(message.state.positions)) {
-              logDebug(`Updating dot for participant: ${participantId}`);
-              this.updateDot(participantId, position.x, position.y, position.color);
-            }
-          }
-          this.setStatus('Connected to dot game');
-          break;
-          
-        case 'dot_update':
-          // Update a dot position
-          logDebug(`Received dot update for user: ${message.userId}`);
-          this.updateDot(
-            message.userId,
-            message.position.x,
-            message.position.y,
-            message.position.color
-          );
-          break;
-          
-        case 'user_joined':
-          logDebug(`User joined: ${message.userId}, total: ${message.participantCount}`);
-          this.setStatus(`User joined! (${message.participantCount} total)`);
-          break;
-          
-        case 'user_left':
-          // Remove the dot for this user
-          logDebug(`User left: ${message.userId}, remaining: ${message.participantCount}`);
-          if (this.dots.has(message.userId)) {
-            this.dotDisplay.removeChild(this.dots.get(message.userId));
-            this.dots.delete(message.userId);
-          }
-          this.setStatus(`User left. (${message.participantCount} remaining)`);
-          break;
-          
-        case 'error':
-          logDebug(`Server returned error: ${message.message}`, 'error');
-          this.setStatus(`Server error: ${message.message}`);
-          break;
-          
-        default:
-          logDebug(`Unknown message type: ${message.type}`, 'warning');
-      }
-    } catch (error) {
-      console.error('Error handling dot game message:', error);
-      logDebug(`Error in handleMessage: ${error.message}`, 'error');
-    }
+    // Also update locally
+    this.updateDot(this.userId, x, y, this.userColor);
   }
   
   handleDisplayClick(event) {
@@ -234,23 +202,24 @@ class DotGame {
     const x = event.clientX - rect.left;
     const y = event.clientY - rect.top;
     
-    // Send new position to server
+    // Send new position via Ably
     this.sendPosition(x, y);
-    
-    // Also update locally
-    this.updateDot(this.userId, x, y, this.userColor);
   }
   
-  sendPosition(x, y) {
-    if (this.socket.readyState === WebSocket.OPEN) {
-      this.socket.send(JSON.stringify({
-        type: 'update_position',
-        position: {
-          x: x,
-          y: y,
-          color: this.userColor
-        }
-      }));
+  showRetryButton() {
+    // Add retry button
+    const retryButton = document.createElement('button');
+    retryButton.textContent = 'Retry Connection';
+    retryButton.className = 'canvas-button retry-button';
+    retryButton.style.marginTop = '10px';
+    retryButton.addEventListener('click', () => {
+      this.connectAbly();
+    });
+    
+    // Add to controls if it doesn't already have a retry button
+    const controls = this.container.querySelector('.dot-game-controls');
+    if (controls && !controls.querySelector('.retry-button')) {
+      controls.appendChild(retryButton);
     }
   }
   
@@ -314,6 +283,12 @@ class DotGame {
   }
   
   handleLeaveGame() {
+    // Send leave message
+    this.sendLeaveMessage();
+    
+    // Disconnect from Ably
+    closeAblyConnection();
+    
     // Call the callback to return to the lobby
     if (this.onLeaveCallback) {
       this.onLeaveCallback();
@@ -327,10 +302,11 @@ class DotGame {
   }
   
   destroy() {
-    // Close the WebSocket connection
-    if (this.socket && this.socket.readyState === WebSocket.OPEN) {
-      this.socket.close();
-    }
+    // Send leave message and disconnect
+    this.sendLeaveMessage();
+    
+    // Close Ably connection
+    closeAblyConnection();
     
     // Remove event listeners
     if (this.dotDisplay) {

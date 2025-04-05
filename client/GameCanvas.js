@@ -1,7 +1,15 @@
 /**
  * GameCanvas.js - Client-side canvas component
- * A simple collaborative canvas that can be controlled via WebSocket
+ * A simple collaborative canvas that can be controlled via Ably for real-time communication
  */
+import { 
+  logDebug, 
+  getRandomColor, 
+  getAblyChannel, 
+  subscribeToChannel, 
+  publishToChannel, 
+  closeAblyConnection 
+} from './utils.js';
 
 class GameCanvas {
   constructor(container, instanceId, userId, onLeaveCallback) {
@@ -9,14 +17,15 @@ class GameCanvas {
     this.instanceId = instanceId;
     this.userId = userId;
     this.onLeaveCallback = onLeaveCallback;
-    this.socket = null;
+    this.channel = null;
     this.circles = [];
+    this.isConnected = false;
     
     // Create UI components
     this.createUI();
     
-    // Connect to WebSocket
-    this.connectWebSocket();
+    // Connect to Ably
+    this.connectAbly();
   }
   
   createUI() {
@@ -61,110 +70,179 @@ class GameCanvas {
     this.statusArea.className = 'status-area';
     this.container.appendChild(this.statusArea);
     
-    this.setStatus('Connecting to game...');
+    this.setStatus('Initializing canvas...');
   }
   
-  connectWebSocket() {
-    // Connect to the WebSocket server
-    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const wsUrl = `${protocol}//${window.location.host}`;
-    
-    this.socket = new WebSocket(wsUrl);
-    
-    this.socket.onopen = () => {
-      this.setStatus('Connected! Joining game...');
+  async connectAbly() {
+    try {
+      this.setStatus('Connecting to Ably...');
       
-      // Join the room
-      this.socket.send(JSON.stringify({
-        type: 'join_room',
-        instanceId: this.instanceId,
-        userId: this.userId,
-        gameType: 'canvas'
-      }));
-    };
+      // Create channel name from instanceId to group users in same Discord activity
+      const channelName = `canvas-${this.instanceId}`;
+      this.channel = getAblyChannel(channelName);
+      
+      // Subscribe to various event types
+      await this.setupSubscriptions();
+      
+      // Announce joining and request current state
+      this.sendJoinMessage();
+      
+      this.isConnected = true;
+      this.setStatus('Connected to canvas game');
+    } catch (error) {
+      logDebug(`Failed to connect to Ably: ${error.message}`, 'error');
+      this.setStatus(`Connection error: ${error.message}`);
+      this.showRetryButton();
+    }
+  }
+  
+  async setupSubscriptions() {
+    if (!this.channel) return;
     
-    this.socket.onmessage = (event) => {
-      try {
-        const message = JSON.parse(event.data);
-        this.handleMessage(message);
-      } catch (error) {
-        console.error('Error parsing WebSocket message:', error);
+    // Handle state sync (initial state)
+    await subscribeToChannel(this.channel, 'state_sync', (message) => {
+      const data = message.data;
+      this.circles = data.circles || [];
+      this.drawCanvas();
+      this.setStatus(`Connected with ${this.circles.length} circles`);
+    });
+    
+    // Handle new circles being added
+    await subscribeToChannel(this.channel, 'circle_added', (message) => {
+      const circle = message.data;
+      this.circles.push(circle);
+      this.drawCanvas();
+    });
+    
+    // Handle canvas clearing
+    await subscribeToChannel(this.channel, 'canvas_cleared', (message) => {
+      const data = message.data;
+      this.circles = [];
+      this.drawCanvas();
+      this.setStatus(`Canvas cleared by user ${data.clearedBy}`);
+    });
+    
+    // Handle user join events
+    await subscribeToChannel(this.channel, 'user_joined', (message) => {
+      const data = message.data;
+      logDebug(`User joined canvas: ${data.userId}`);
+      this.setStatus(`User joined!`);
+      
+      // If someone else joined and we have state, send it to them
+      if (data.userId !== this.userId && this.isConnected) {
+        publishToChannel(this.channel, 'state_sync', {
+          circles: this.circles,
+          syncedBy: this.userId
+        });
       }
-    };
+    });
     
-    this.socket.onclose = () => {
-      this.setStatus('Disconnected from game');
-    };
+    // Handle user leave events
+    await subscribeToChannel(this.channel, 'user_left', (message) => {
+      const data = message.data;
+      logDebug(`User left canvas: ${data.userId}`);
+      this.setStatus(`User left: ${data.userId}`);
+    });
     
-    this.socket.onerror = (error) => {
-      this.setStatus('Connection error');
-      console.error('WebSocket error:', error);
-    };
+    // Handle state requests
+    await subscribeToChannel(this.channel, 'request_state', (message) => {
+      const data = message.data;
+      
+      // Only respond if it's not our own request
+      if (data.userId !== this.userId) {
+        publishToChannel(this.channel, 'state_sync', {
+          circles: this.circles,
+          syncedBy: this.userId
+        });
+      }
+    });
   }
   
-  handleMessage(message) {
-    switch (message.type) {
-      case 'state_sync':
-        this.circles = message.state.circles || [];
-        this.drawCanvas();
-        this.setStatus(`Connected with ${message.state.circles?.length || 0} circles`);
-        break;
-      
-      case 'circle_added':
-        this.circles.push(message.circle);
-        this.drawCanvas();
-        break;
-      
-      case 'canvas_cleared':
-        this.circles = [];
-        this.drawCanvas();
-        this.setStatus(`Canvas cleared by user ${message.clearedBy}`);
-        break;
-      
-      case 'user_joined':
-        this.setStatus(`User joined! (${message.participantCount} total)`);
-        break;
-      
-      case 'user_left':
-        this.setStatus(`User left. (${message.participantCount} remaining)`);
-        break;
-      
-      case 'error':
-        this.setStatus(`Error: ${message.message}`);
-        break;
+  sendJoinMessage() {
+    publishToChannel(this.channel, 'user_joined', {
+      userId: this.userId,
+      timestamp: Date.now()
+    });
+    
+    // Request current state from other users
+    publishToChannel(this.channel, 'request_state', {
+      userId: this.userId,
+      timestamp: Date.now()
+    });
+  }
+  
+  sendLeaveMessage() {
+    if (this.channel && this.isConnected) {
+      publishToChannel(this.channel, 'user_left', {
+        userId: this.userId,
+        timestamp: Date.now()
+      });
     }
   }
   
   handleCanvasClick(event) {
+    if (!this.channel || !this.isConnected) return;
+    
     // Get the click coordinates relative to the canvas
     const rect = this.canvas.getBoundingClientRect();
     const x = event.clientX - rect.left;
     const y = event.clientY - rect.top;
     
-    // Send the circle to the server
-    this.socket.send(JSON.stringify({
-      type: 'add_circle',
-      payload: {
-        x,
-        y,
-        radius: 20,
-        color: null // Let the server assign a random color
-      }
-    }));
+    // Create a new circle
+    const newCircle = {
+      x,
+      y,
+      radius: 20,
+      color: getRandomColor(),
+      userId: this.userId,
+      timestamp: Date.now()
+    };
+    
+    // Add locally first for instant feedback
+    this.circles.push(newCircle);
+    this.drawCanvas();
+    
+    // Send the circle to all other clients
+    publishToChannel(this.channel, 'circle_added', newCircle);
   }
   
   handleClearCanvas() {
-    // Send clear canvas command
-    this.socket.send(JSON.stringify({
-      type: 'clear_canvas'
-    }));
+    if (!this.channel || !this.isConnected) return;
+    
+    // Clear locally first
+    this.circles = [];
+    this.drawCanvas();
+    
+    // Send clear command to all clients
+    publishToChannel(this.channel, 'canvas_cleared', {
+      clearedBy: this.userId,
+      timestamp: Date.now()
+    });
+  }
+  
+  showRetryButton() {
+    // Add retry button
+    const retryButton = document.createElement('button');
+    retryButton.textContent = 'Retry Connection';
+    retryButton.className = 'canvas-button retry-button';
+    retryButton.style.marginTop = '10px';
+    retryButton.addEventListener('click', () => {
+      this.connectAbly();
+    });
+    
+    // Add to toolbar if it doesn't already have a retry button
+    const toolbar = this.container.querySelector('.canvas-toolbar');
+    if (toolbar && !toolbar.querySelector('.retry-button')) {
+      toolbar.appendChild(retryButton);
+    }
   }
   
   handleLeaveGame() {
-    // Close the WebSocket connection
-    if (this.socket && this.socket.readyState === WebSocket.OPEN) {
-      this.socket.close();
-    }
+    // Send leave message
+    this.sendLeaveMessage();
+    
+    // Disconnect from Ably
+    closeAblyConnection();
     
     // Call the callback to return to the lobby
     if (this.onLeaveCallback) {
@@ -198,9 +276,11 @@ class GameCanvas {
   
   // Clean up when the component is destroyed
   destroy() {
-    if (this.socket) {
-      this.socket.close();
-    }
+    // Send leave message
+    this.sendLeaveMessage();
+    
+    // Close Ably connection
+    closeAblyConnection();
     
     // Remove event listeners
     if (this.canvas) {
