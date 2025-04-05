@@ -357,24 +357,8 @@ export function getEnvVariable(key, fallback = null) {
 
 // Check if running in Discord environment
 export function isInDiscordEnvironment() {
-  try {
-    // Import at runtime to avoid circular dependencies
-    const { getFrameMetadata } = window._discordSDK || {};
-    
-    // Use Discord's official method if available
-    if (typeof getFrameMetadata === 'function') {
-      const metadata = getFrameMetadata();
-      return !!metadata?.location;
-    }
-    
-    // Fallback to older check
-    return typeof window !== 'undefined' &&
-           window.discordSdk &&
-           window.discordSdk.isInDiscord;
-  } catch (error) {
-    console.error("Error checking Discord environment:", error);
-    return false;
-  }
+  // Hard-coded to true since we only run in Discord
+  return true;
 }
 
 // ----- WebSocket Connection Management -----
@@ -424,32 +408,14 @@ export function getWebSocketInstance() {
     return wsInstance;
   }
  
-  // Get WebSocket URL from environment
-  const wsUrl = getEnvVariable('WS_SERVER_URL', 'wss://brebiskingactivity-production.up.railway.app/ws');
- 
   try {
-    // Check if we're in Discord environment using multiple methods
-    const { getFrameMetadata } = window._discordSDK || {};
-    const metadata = typeof getFrameMetadata === 'function' ? getFrameMetadata() : null;
-    const isInDiscordByMetadata = !!metadata?.location;
-    const isInDiscord = isInDiscordByMetadata || isInDiscordEnvironment();
-   
-    // Use different URL construction if in Discord environment
-    let finalWsUrl;
-    if (isInDiscord) {
-      // For Discord, we need to use the current window's hostname with /ws path
-      // This ensures the connection goes through Discord's proxy
-      const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-      finalWsUrl = `${protocol}//${window.location.host}/ws`;
-      logDebug(`Using Discord proxied WebSocket URL: ${finalWsUrl}`);
-    } else {
-      finalWsUrl = wsUrl;
-      logDebug(`Using direct WebSocket URL: ${finalWsUrl}`);
-    }
+    // Always use Discord WebSocket URL format
+    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const finalWsUrl = `${protocol}//${window.location.host}/ws`;
    
     notifyStateChange(CONNECTION_STATES.CONNECTING);
     logDebug(`Connecting to WebSocket: ${finalWsUrl}`);
-    logDebug(`Connection details: Discord environment=${isInDiscord}, Discord metadata=${isInDiscordByMetadata}, Network online=${navigator.onLine}, Protocol=${window.location.protocol}, Location=${window.location.href}`);
+    logDebug(`Connection details: Network online=${navigator.onLine}, Protocol=${window.location.protocol}, Location=${window.location.href}`);
    
     // Create new WebSocket instance
     wsInstance = new WebSocket(finalWsUrl);
@@ -570,7 +536,7 @@ export function getWebSocketInstance() {
   } catch (error) {
     const errorDetails = extractErrorInfo(error);
     logDebug(`Failed to initialize WebSocket: ${errorDetails}`, 'error');
-    logDebug(`URL attempted: ${wsUrl}`, 'error');
+    logDebug(`URL attempted: ${finalWsUrl}`, 'error');
     
     if (isInDiscordEnvironment()) {
       logDebug('In Discord, WebSocket URL should be "/ws" and URL mappings must be configured correctly', 'warning');

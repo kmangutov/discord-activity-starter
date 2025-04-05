@@ -1,4 +1,4 @@
-import { DiscordSDK, Events, patchUrlMappings, getFrameMetadata } from "@discord/embedded-app-sdk";
+import { DiscordSDK, Events, patchUrlMappings } from "@discord/embedded-app-sdk";
 import GameCanvas from './GameCanvas.js';
 import DotGame from './DotGame.js';
 import rocketLogo from '/rocket.png';
@@ -31,16 +31,8 @@ let appContainer;
 
 // Store WebSocket server URL for consistency
 const getWebSocketUrl = () => {
-  const isDiscord = isInDiscordEnvironment();
-  if (isDiscord) {
-    // When in Discord, we use the URL mapping which should be just '/ws'
-    return '/ws';
-  } else {
-    // For direct access, use the full WebSocket URL from the env
-    const wsUrl = import.meta.env.WS_SERVER_URL || 'wss://brebiskingactivity-production.up.railway.app/ws';
-    logDebug(`Using WebSocket URL from environment: ${wsUrl}`);
-    return wsUrl;
-  }
+  // Always use Discord URL format since we only run in Discord
+  return '/ws';
 };
 
 // Initialize the SDK with the client ID
@@ -68,41 +60,25 @@ document.addEventListener('DOMContentLoaded', async () => {
   logDebug('Application initialized');
   logDebug(`Discord instanceId: ${discordSdk.instanceId}`);
   
-  // Make getFrameMetadata available globally to help with environment detection
-  if (typeof window !== 'undefined') {
-    window._discordSDK = { getFrameMetadata };
-  }
-  
-  // Check Discord environment using direct SDK approach first
-  const metadata = getFrameMetadata();
-  const isInDiscordByMetadata = !!metadata?.location;
-  const isInDiscordByUtil = isInDiscordEnvironment();
-  
-  logDebug(`Discord environment checks: By metadata=${isInDiscordByMetadata}, By util=${isInDiscordByUtil}`);
-  
   // Apply URL mappings for Discord sandbox - MUST be done before any WebSocket connections
   try {
-    // Force isProd to true if either detection method says we're in Discord
-    const isProd = isInDiscordByMetadata || isInDiscordByUtil;
+    // Hard-code isProd to true since app only runs in Discord
+    const isProd = true;
     
-    if (isProd) {
-      logDebug('Running in Discord - applying URL mappings');
-      logDebug('Current URL before mapping: ' + window.location.href);
-      
-      // Use the patchUrlMappings API to route requests through Discord's proxy
-      await patchUrlMappings([
-        // Single root mapping that handles all paths including WebSockets
-        { prefix: '/', target: 'brebiskingactivity-production.up.railway.app' }
-      ]);
-      
-      logDebug('URL mappings applied successfully');
-      logDebug('URL after mapping: ' + window.location.href);
-      
-      // IMPORTANT: Force a very short delay to allow mappings to take effect
-      await new Promise(resolve => setTimeout(resolve, 100));
-    } else {
-      logDebug('Not running in Discord environment, skipping URL mappings');
-    }
+    logDebug('Running in Discord - applying URL mappings');
+    logDebug('Current URL before mapping: ' + window.location.href);
+    
+    // Use the patchUrlMappings API to route requests through Discord's proxy
+    await patchUrlMappings([
+      // Single root mapping that handles all paths including WebSockets
+      { prefix: '/', target: 'brebiskingactivity-production.up.railway.app' }
+    ]);
+    
+    logDebug('URL mappings applied successfully');
+    logDebug('URL after mapping: ' + window.location.href);
+    
+    // IMPORTANT: Force a very short delay to allow mappings to take effect
+    await new Promise(resolve => setTimeout(resolve, 100));
   } catch (error) {
     logDebug(`Failed to apply URL mappings: ${error.message}`, 'error');
     if (error.stack) {
@@ -198,10 +174,7 @@ async function setupDiscordSdk() {
     await discordSdk.ready();
     logDebug("Discord SDK is ready");
     
-    // Check if isInDiscord property is set correctly
-    logDebug(`Discord environment check: isInDiscord=${discordSdk.isInDiscord}`);
-    
-    // Verify URL mappings work by testing window.location
+    // Log Discord environment info
     logDebug(`Current location: protocol=${window.location.protocol}, host=${window.location.host}, pathname=${window.location.pathname}`);
 
     // Authorize with Discord Client
