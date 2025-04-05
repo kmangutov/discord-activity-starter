@@ -121,3 +121,103 @@ button:focus-visible {
 .participant-name {
   font-weight: 500;
 }
+
+/* Debug Console Styles */
+.debug-console {
+  position: fixed;
+  bottom: 20px;
+  left: 20px;
+  width: 350px;
+  height: 250px;
+  background-color: rgba(32, 34, 37, 0.9);
+  border-radius: 8px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.25);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  transition: height 0.3s ease;
+  z-index: 1000;
+  border: 1px solid rgba(79, 84, 92, 0.3);
+}
+
+.debug-console.minimized {
+  height: 32px;
+}
+
+.debug-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 6px 12px;
+  background-color: #202225;
+  color: #b9bbbe;
+  font-size: 14px;
+  font-weight: 500;
+  user-select: none;
+  cursor: move;
+}
+
+.toggle-debug {
+  background: transparent;
+  border: none;
+  color: #b9bbbe;
+  padding: 0;
+  width: 20px;
+  height: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+
+.toggle-debug:hover {
+  color: white;
+}
+
+.debug-console-content {
+  flex: 1;
+  overflow-y: auto;
+  padding: 8px;
+  font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
+  font-size: 12px;
+  color: #dcddde;
+  line-height: 1.5;
+  max-height: calc(250px - 32px);
+  scrollbar-width: thin;
+  scrollbar-color: #4f545c #2f3136;
+}
+
+.debug-console-content::-webkit-scrollbar {
+  width: 8px;
+}
+
+.debug-console-content::-webkit-scrollbar-track {
+  background: #2f3136;
+}
+
+.debug-console-content::-webkit-scrollbar-thumb {
+  background-color: #4f545c;
+  border-radius: 4px;
+}
+
+.log-entry {
+  margin-bottom: 4px;
+  word-break: break-word;
+}
+
+.log-time {
+  color: #72767d;
+  margin-right: 6px;
+}
+
+.log-message {
+  color: #dcddde;
+}
+
+.log-error .log-message {
+  color: #ed4245;
+}
+
+.log-warning .log-message {
+  color: #faa61a;
+}
