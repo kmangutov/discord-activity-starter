@@ -1,5 +1,5 @@
 import { DiscordSDK, Events } from "@discord/embedded-app-sdk";
-
+import GameCanvas from './GameCanvas.js';
 import rocketLogo from '/rocket.png';
 import "./style.css";
 
@@ -9,6 +9,12 @@ import "./style.css";
 let auth;
 // Store participants data
 let participants = [];
+// Store the current active game
+let currentGame = null;
+// Store available games
+let availableGames = [];
+// Store the main app container
+let appContainer;
 
 // Debug logger function
 function logDebug(message, type = 'info') {
@@ -52,16 +58,43 @@ console.warn = function(...args) {
 
 const discordSdk = new DiscordSDK(import.meta.env.VITE_DISCORD_CLIENT_ID);
 
-setupDiscordSdk().then(() => {
-  logDebug("Discord SDK is authenticated");
+// Initialize the app
+document.addEventListener('DOMContentLoaded', () => {
+  // Set up the app container
+  document.querySelector('#app').innerHTML = `
+    <div id="app-content">
+      <div id="debug-console">
+        <div id="debug-console-header">Debug Console <button id="toggle-debug">Toggle</button></div>
+        <div id="debug-console-content"></div>
+      </div>
+    </div>
+  `;
   
-  // Fetch initial participants
-  fetchParticipants();
+  // Add toggle functionality for debug console
+  document.getElementById('toggle-debug').addEventListener('click', () => {
+    const consoleContent = document.getElementById('debug-console-content');
+    consoleContent.style.display = consoleContent.style.display === 'none' ? 'block' : 'none';
+  });
   
-  // Subscribe to participant updates
-  discordSdk.subscribe(Events.ACTIVITY_INSTANCE_PARTICIPANTS_UPDATE, updateParticipants);
-}).catch(error => {
-  logDebug(`Failed to setup Discord SDK: ${error.message}`, 'error');
+  appContainer = document.getElementById('app-content');
+  
+  setupDiscordSdk().then(() => {
+    logDebug("Discord SDK is authenticated");
+    
+    // Fetch initial participants
+    fetchParticipants();
+    
+    // Fetch available games
+    fetchAvailableGames();
+    
+    // Subscribe to participant updates
+    discordSdk.subscribe(Events.ACTIVITY_INSTANCE_PARTICIPANTS_UPDATE, updateParticipants);
+    
+    // Show the lobby
+    showLobby();
+  }).catch(error => {
+    logDebug(`Failed to setup Discord SDK: ${error.message}`, 'error');
+  });
 });
 
 async function setupDiscordSdk() {
@@ -82,9 +115,6 @@ async function setupDiscordSdk() {
   });
 
   // Retrieve an access_token from your activity's server
-  // Note: We need to prefix our backend `/api/token` route with `/.proxy` to stay compliant with the CSP.
-  // Read more about constructing a full URL and using external resources at
-  // https://discord.com/developers/docs/activities/development-guides#construct-a-full-url
   const response = await fetch("/.proxy/api/token", {
     method: "POST",
     headers: {
@@ -110,15 +140,12 @@ async function setupDiscordSdk() {
 async function fetchParticipants() {
   try {
     const response = await discordSdk.commands.getInstanceConnectedParticipants();
-    // Check what structure we're getting back
-    logDebug(`Participants response structure: ${JSON.stringify(response)}`);
     
     // Handle different response structures
     if (Array.isArray(response)) {
       participants = response;
     } else if (response && typeof response === 'object') {
       // If it's an object, try to find the participants array
-      // It might be in a property like 'users', 'participants', etc.
       if (response.users) {
         participants = response.users;
       } else if (response.participants) {
@@ -198,33 +225,29 @@ function renderParticipants() {
         return;
       }
       
-      // Create avatar URL
-      let avatarSrc = '';
+      const participantElement = document.createElement('div');
+      participantElement.className = 'participant-item';
+      
+      // Display user avatar if available
       if (user.avatar) {
-        avatarSrc = `https://cdn.discordapp.com/avatars/${user.id}/${user.avatar}.png?size=256`;
+        const avatarElement = document.createElement('img');
+        avatarElement.className = 'participant-avatar';
+        avatarElement.src = user.avatar;
+        avatarElement.alt = user.username || 'User';
+        participantElement.appendChild(avatarElement);
       } else {
-        // Safely handle potential BigInt conversion issues
-        try {
-          const defaultAvatarIndex = Number(BigInt(user.id) >> 22n % 6n);
-          avatarSrc = `https://cdn.discordapp.com/embed/avatars/${defaultAvatarIndex}.png`;
-        } catch (error) {
-          // Fallback to avatar 0 if we can't calculate
-          avatarSrc = `https://cdn.discordapp.com/embed/avatars/0.png`;
-          logDebug(`Avatar calculation error: ${error.message}`, 'warning');
-        }
+        // Fallback avatar
+        const avatarFallback = document.createElement('div');
+        avatarFallback.className = 'participant-avatar-fallback';
+        avatarFallback.textContent = (user.username || 'User').charAt(0).toUpperCase();
+        participantElement.appendChild(avatarFallback);
       }
       
-      // Create username with fallbacks
-      const username = user.global_name || user.username || 
-                       (user.user ? (user.user.global_name || user.user.username) : 'Unknown User');
-      
-      // Create participant element
-      const participantElement = document.createElement('div');
-      participantElement.className = 'participant';
-      participantElement.innerHTML = `
-        <img src="${avatarSrc}" alt="Avatar" class="participant-avatar">
-        <span class="participant-name">${username}</span>
-      `;
+      // Display user name
+      const nameElement = document.createElement('span');
+      nameElement.className = 'participant-name';
+      nameElement.textContent = user.username || `User ${user.id || 'Unknown'}`;
+      participantElement.appendChild(nameElement);
       
       participantsList.appendChild(participantElement);
     } catch (error) {
@@ -233,24 +256,150 @@ function renderParticipants() {
   });
 }
 
-document.querySelector('#app').innerHTML = `
-  <div>
-    <img src="${rocketLogo}" class="logo" alt="Discord" />
-    <h1>Hello, World!</h1>
-    <div class="participants-container">
-      <h2>Activity Participants</h2>
-      <div id="participants-list" class="participants-list"></div>
-    </div>
+// Fetch available games from the server
+async function fetchAvailableGames() {
+  try {
+    const response = await fetch('/.proxy/api/games');
+    availableGames = await response.json();
+    logDebug(`Fetched ${availableGames.length} available games`);
+  } catch (error) {
+    logDebug(`Failed to fetch available games: ${error.message}`, 'error');
+    // Set default available games if fetch fails
+    availableGames = [
+      { id: 'canvas', name: 'Simple Canvas', description: 'A collaborative drawing canvas' },
+      { id: 'lobby', name: 'Lobby', description: 'The default lobby' }
+    ];
+  }
+}
+
+// Show the lobby UI
+function showLobby() {
+  // Clean up any existing game
+  if (currentGame && currentGame.destroy) {
+    currentGame.destroy();
+    currentGame = null;
+  }
+  
+  // Clear the app container
+  appContainer.innerHTML = '';
+  
+  // Create lobby header
+  const header = document.createElement('div');
+  header.className = 'lobby-header';
+  
+  const title = document.createElement('h1');
+  title.textContent = 'Discord Activity Lobby';
+  header.appendChild(title);
+  
+  const subtitle = document.createElement('p');
+  subtitle.textContent = 'Select a game to play:';
+  header.appendChild(subtitle);
+  
+  appContainer.appendChild(header);
+  
+  // Create game selection
+  const gameSelector = document.createElement('div');
+  gameSelector.className = 'game-selector';
+  
+  availableGames.forEach(game => {
+    if (game.id === 'lobby') return; // Skip the lobby as a game option
     
-    <div id="debug-console" class="debug-console">
-      <div class="debug-header">
-        <span>Debug Console</span>
-        <button id="toggle-debug" class="toggle-debug">_</button>
-      </div>
-      <div id="debug-console-content" class="debug-console-content"></div>
-    </div>
-  </div>
-`;
+    const gameCard = document.createElement('div');
+    gameCard.className = 'game-card';
+    gameCard.addEventListener('click', () => startGame(game.id));
+    
+    const gameTitle = document.createElement('h2');
+    gameTitle.textContent = game.name;
+    gameCard.appendChild(gameTitle);
+    
+    const gameDescription = document.createElement('p');
+    gameDescription.textContent = game.description;
+    gameCard.appendChild(gameDescription);
+    
+    gameSelector.appendChild(gameCard);
+  });
+  
+  appContainer.appendChild(gameSelector);
+  
+  // Create the participants sidebar
+  const sidebarContainer = document.createElement('div');
+  sidebarContainer.className = 'sidebar-container';
+  
+  const participantsHeader = document.createElement('h2');
+  participantsHeader.textContent = 'Participants';
+  sidebarContainer.appendChild(participantsHeader);
+  
+  const participantsList = document.createElement('div');
+  participantsList.id = 'participants-list';
+  participantsList.className = 'participants-list';
+  sidebarContainer.appendChild(participantsList);
+  
+  appContainer.appendChild(sidebarContainer);
+  
+  // Render participants in the sidebar
+  renderParticipants();
+}
+
+// Start a game
+function startGame(gameId) {
+  logDebug(`Starting game: ${gameId}`);
+  
+  // Clean up any existing game
+  if (currentGame && currentGame.destroy) {
+    currentGame.destroy();
+    currentGame = null;
+  }
+  
+  // Clear the app container
+  appContainer.innerHTML = '';
+  
+  // Create game container
+  const gameContainer = document.createElement('div');
+  gameContainer.className = 'game-container';
+  appContainer.appendChild(gameContainer);
+  
+  // Create sidebar (will include participants)
+  const sidebarContainer = document.createElement('div');
+  sidebarContainer.className = 'sidebar-container game-sidebar';
+  
+  const participantsHeader = document.createElement('h2');
+  participantsHeader.textContent = 'Participants';
+  sidebarContainer.appendChild(participantsHeader);
+  
+  const participantsList = document.createElement('div');
+  participantsList.id = 'participants-list';
+  participantsList.className = 'participants-list';
+  sidebarContainer.appendChild(participantsList);
+  
+  appContainer.appendChild(sidebarContainer);
+  
+  // Initialize the appropriate game
+  if (gameId === 'canvas') {
+    // Get current user ID from auth
+    const userId = auth?.user?.id || 'anonymous';
+    
+    // Create the GameCanvas instance
+    currentGame = new GameCanvas(
+      gameContainer, 
+      discordSdk.instanceId, 
+      userId, 
+      () => showLobby() // Callback to return to lobby
+    );
+  } else {
+    // Handle unknown game type
+    gameContainer.innerHTML = `<div class="error-message">Unknown game type: ${gameId}</div>`;
+    
+    // Add a button to return to lobby
+    const backButton = document.createElement('button');
+    backButton.textContent = 'Back to Lobby';
+    backButton.className = 'canvas-button';
+    backButton.addEventListener('click', showLobby);
+    gameContainer.appendChild(backButton);
+  }
+  
+  // Render participants in the sidebar
+  renderParticipants();
+}
 
 // Initial render of participants
 renderParticipants();

@@ -3,11 +3,18 @@ import dotenv from "dotenv";
 import fetch from "node-fetch";
 import path from 'path';
 import { fileURLToPath } from 'url';
+import http from 'http';
+import { WebSocketServer } from 'ws';
+import { getOrCreateRoom, leaveRoom, getAvailableGames } from './rooms.js';
+import { CanvasGame } from './game-example.js';
 
 dotenv.config({ path: "../.env" });
 
 const app = express();
 const port = process.env.PORT || 3001;
+
+// Create HTTP server
+const server = http.createServer(app);
 
 // Needed to get __dirname in ES module
 const __filename = fileURLToPath(import.meta.url);
@@ -18,6 +25,79 @@ app.use(express.json());
 
 // Serve static files from Vite build
 app.use(express.static(path.join(__dirname, '../client/dist')));
+
+// Create a WebSocket server
+const wss = new WebSocketServer({ server });
+
+// WebSocket connection handler
+wss.on('connection', (ws) => {
+  console.log('WebSocket client connected');
+  
+  // Wait for the client to send instanceId and userId
+  ws.on('message', (message) => {
+    try {
+      const data = JSON.parse(message);
+      
+      // Handle initial connection message with instanceId
+      if (data.type === 'join_room') {
+        const { instanceId, userId, gameType = 'lobby' } = data;
+        
+        if (!instanceId || !userId) {
+          ws.send(JSON.stringify({ 
+            type: 'error', 
+            message: 'Missing instanceId or userId' 
+          }));
+          return;
+        }
+        
+        // Get or create the appropriate room
+        let room;
+        if (gameType === 'canvas') {
+          // Create a canvas game room if it doesn't exist
+          if (!getOrCreateRoom(instanceId)) {
+            room = new CanvasGame(instanceId);
+          } else {
+            room = getOrCreateRoom(instanceId);
+          }
+        } else {
+          // Default to lobby
+          room = getOrCreateRoom(instanceId, gameType);
+        }
+        
+        // Add the participant to the room
+        room.addParticipant(ws, userId);
+        
+        console.log(`User ${userId} joined room ${instanceId} (${gameType})`);
+      } 
+      // Handle other message types in the game room
+      else if (ws.instanceId) {
+        const room = getOrCreateRoom(ws.instanceId);
+        if (room) {
+          room.onMessage(ws, data);
+        }
+      }
+    } catch (error) {
+      console.error('Error processing WebSocket message:', error);
+      ws.send(JSON.stringify({ 
+        type: 'error', 
+        message: 'Invalid message format' 
+      }));
+    }
+  });
+  
+  // Handle disconnection
+  ws.on('close', () => {
+    console.log('WebSocket client disconnected');
+    if (ws.instanceId) {
+      leaveRoom(ws);
+    }
+  });
+});
+
+// API to get available games
+app.get('/api/games', (req, res) => {
+  res.json(getAvailableGames());
+});
 
 app.post("/api/token", async (req, res) => {
   
@@ -49,6 +129,7 @@ app.get('*', (req, res) => {
   res.sendFile(path.join(__dirname, '../client/dist/index.html'));
 });
 
-app.listen(port, () => {
+// Use the HTTP server instead of the Express app
+server.listen(port, () => {
   console.log(`Server listening on port ${port}`);
 });
