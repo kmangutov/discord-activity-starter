@@ -1,4 +1,4 @@
-import { DiscordSDK, Events, patchUrlMappings } from "@discord/embedded-app-sdk";
+import { DiscordSDK, Events, patchUrlMappings, getFrameMetadata } from "@discord/embedded-app-sdk";
 import GameCanvas from './GameCanvas.js';
 import DotGame from './DotGame.js';
 import rocketLogo from '/rocket.png';
@@ -68,10 +68,22 @@ document.addEventListener('DOMContentLoaded', async () => {
   logDebug('Application initialized');
   logDebug(`Discord instanceId: ${discordSdk.instanceId}`);
   
+  // Make getFrameMetadata available globally to help with environment detection
+  if (typeof window !== 'undefined') {
+    window._discordSDK = { getFrameMetadata };
+  }
+  
+  // Check Discord environment using direct SDK approach first
+  const metadata = getFrameMetadata();
+  const isInDiscordByMetadata = !!metadata?.location;
+  const isInDiscordByUtil = isInDiscordEnvironment();
+  
+  logDebug(`Discord environment checks: By metadata=${isInDiscordByMetadata}, By util=${isInDiscordByUtil}`);
+  
   // Apply URL mappings for Discord sandbox - MUST be done before any WebSocket connections
   try {
-    // Check if we're in Discord's environment
-    const isProd = isInDiscordEnvironment();
+    // Force isProd to true if either detection method says we're in Discord
+    const isProd = isInDiscordByMetadata || isInDiscordByUtil;
     
     if (isProd) {
       logDebug('Running in Discord - applying URL mappings');
