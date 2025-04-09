@@ -21,6 +21,11 @@ class Room {
     socket.userId = userId;
     socket.instanceId = this.instanceId;
     
+    // --- DEBUG LOGGING ---
+    const participantIds = Array.from(this.participants).map(p => p.userId || 'pending');
+    console.log(`Room [${this.instanceId}]: Participant ${userId} added. Current participants (${this.participants.size}): [${participantIds.join(', ')}]`);
+    // --- END DEBUG LOGGING ---
+
     this.onJoin(socket, userId);
     this.broadcast({
       type: 'user_joined',
@@ -33,6 +38,12 @@ class Room {
     if (this.participants.has(socket)) {
       const userId = socket.userId;
       this.participants.delete(socket);
+
+      // --- DEBUG LOGGING ---
+      const remainingParticipantIds = Array.from(this.participants).map(p => p.userId || 'pending');
+      console.log(`Room [${this.instanceId}]: Participant ${userId} removed. Remaining participants (${this.participants.size}): [${remainingParticipantIds.join(', ')}]`);
+      // --- END DEBUG LOGGING ---
+
       this.onLeave(socket, userId);
       
       this.broadcast({
@@ -51,6 +62,8 @@ class Room {
     
     // --- DEBUG LOGGING --- 
     let recipients = [];
+    const currentParticipantIds = Array.from(this.participants).map(p => p.userId || 'pending');
+    console.log(`Room [${this.instanceId}]: Preparing broadcast. Participants (${this.participants.size}): [${currentParticipantIds.join(', ')}] | Except: ${exceptSocket?.userId || 'None'}`);
     // --- END DEBUG LOGGING --- 
 
     for (const participant of this.participants) {

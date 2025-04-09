@@ -55,7 +55,7 @@ wss.on('error', (error) => {
 // WebSocket connection handler
 wss.on('connection', (ws, req) => {
   console.log('WebSocket client connected from:', req.socket.remoteAddress);
-  console.log('Connection headers:', req.headers);
+  // console.log('Connection headers:', req.headers); // Reduce noise
   
   // Add a ping interval to keep connections alive
   const pingInterval = setInterval(() => {
@@ -64,10 +64,9 @@ wss.on('connection', (ws, req) => {
     }
   }, 30000); // Send ping every 30 seconds
   
-  // Wait for the client to send instanceId and userId
   ws.on('message', (message) => {
     try {
-      console.log('WebSocket message received:', message.toString());
+      console.log('WebSocket message received:', message.toString().substring(0, 200)); // Log start of message
       const data = JSON.parse(message);
       
       // Handle initial connection message with instanceId
@@ -75,57 +74,57 @@ wss.on('connection', (ws, req) => {
         const { instanceId, userId, gameType = 'lobby', activityId } = data;
         
         if (!instanceId || !userId) {
-          ws.send(JSON.stringify({ 
-            type: 'error', 
-            message: 'Missing instanceId or userId' 
-          }));
+          ws.send(JSON.stringify({ type: 'error', message: 'Missing instanceId or userId' }));
+          console.error(`Join room failed: Missing instanceId or userId for data:`, data);
           return;
         }
         
         try {
-          // Get the room for this instance
           let room = getOrCreateRoom(instanceId);
           
-          // If we have a specific game type and the room is a basic room,
-          // try to create a game-specific room
-          if (gameType !== 'lobby' && room.constructor.name === 'Room') {
-            // Create a game instance using the registry
-            const gameInstance = getGameInstance(gameType, instanceId, activityId);
-            
-            if (gameInstance) {
-              // Replace the basic room with a game-specific one
-              room = getOrCreateRoom(instanceId, null, gameInstance);
-              console.log(`Created ${gameType} instance for room ${instanceId}`);
-            } else {
-              console.warn(`Failed to create game instance for ${gameType}, using default room`);
+          // If room doesn't exist, or if it's a basic room and we need a game room
+          if (!room || (room.constructor.name === 'Room' && gameType !== 'lobby')) {
+            console.log(`Room [${instanceId}]: Needs creation or upgrade for gameType: ${gameType}`);
+            let gameInstance = null;
+            if (gameType !== 'lobby') {
+              gameInstance = getGameInstance(gameType, instanceId, activityId);
+              if (gameInstance) {
+                console.log(`Room [${instanceId}]: Created specific game instance: ${gameType}`);
+              } else {
+                console.warn(`Room [${instanceId}]: Failed to create game instance for ${gameType}, will use default room.`);
+              }
             }
+            // Create/replace the room with the correct type (gameInstance or new Room)
+            room = getOrCreateRoom(instanceId, gameType, gameInstance);
+          } else {
+            console.log(`Room [${instanceId}]: Found existing room of type ${room.constructor.name}`);
           }
           
-          // Add the participant to the room
+          // Add the participant to the obtained room
           room.addParticipant(ws, userId);
-          
-          console.log(`User ${userId} joined room ${instanceId} (${gameType})`);
+          console.log(`User ${userId} added to room ${instanceId} (${room.constructor.name})`);
+
         } catch (error) {
-          console.error('Error joining room:', error);
-          ws.send(JSON.stringify({ 
-            type: 'error', 
-            message: 'Failed to join room: ' + error.message 
-          }));
+          console.error(`Error joining room ${instanceId} for user ${userId}:`, error);
+          ws.send(JSON.stringify({ type: 'error', message: 'Failed to join room: ' + error.message }));
         }
       } 
-      // Handle other message types in the game room
+      // Handle other message types (like publish) only *after* the socket is associated with a room/instance
       else if (ws.instanceId) {
         const room = getOrCreateRoom(ws.instanceId);
         if (room) {
+          // Delegate message handling to the specific room instance
           room.onMessage(ws, data);
+        } else {
+          console.warn(`Message received for unknown room ${ws.instanceId} from user ${ws.userId}`);
         }
+      } else {
+        // Message received before join_room?
+        console.warn(`Message received from socket without instanceId: ${data.type}`);
       }
     } catch (error) {
       console.error('Error processing WebSocket message:', error);
-      ws.send(JSON.stringify({ 
-        type: 'error', 
-        message: 'Invalid message format' 
-      }));
+      ws.send(JSON.stringify({ type: 'error', message: 'Invalid message format or processing error' }));
     }
   });
   
