@@ -73,65 +73,84 @@ class DotGameFrontend extends GameInterface {
   async setupSubscriptions() {
     if (!this.channel) return;
     
-    // Handle position updates from other users
-    await subscribeToChannel(this.channel, 'position_update', (message) => {
-      const data = message.data;
-      if (data.userId !== this.userId) { // Don't update our own dot twice
-        this.updateDot(
-          data.userId,
-          data.position.x,
-          data.position.y, 
-          data.position.color
-        );
+    // Handle full state sync from the server
+    await subscribeToChannel(this.channel, 'state_sync', (data) => {
+      logDebug('Received state_sync:', data);
+      if (data.positions) {
+        // Clear existing dots before applying synced state
+        for (const dot of this.dots.values()) {
+          if (dot.parentNode === this.dotDisplay) {
+            this.dotDisplay.removeChild(dot);
+          }
+        }
+        this.dots.clear();
+        
+        // Update dots based on the received state
+        for (const [userId, posData] of Object.entries(data.positions)) {
+          this.updateDot(userId, posData.x, posData.y, posData.color);
+        }
+        this.setStatus(`State synced. ${Object.keys(data.positions).length} players.`);
+      }
+    });
+    
+    // Handle position updates from other users - listen for 'dot_update' from server
+    await subscribeToChannel(this.channel, 'dot_update', (data) => {
+      // --- DEBUG LOGGING --- 
+      console.log(`DotGameFrontend [${this.instanceId}]: Received dot_update data for user ${data?.userId}:`, JSON.stringify(data));
+      // --- END DEBUG LOGGING --- 
+
+      // Check if the update is for a different user
+      if (data.userId !== this.userId) {
+        // Ensure position data exists
+        if (data.position) {
+          // --- DEBUG LOGGING --- 
+          console.log(`DotGameFrontend [${this.instanceId}]: Calling updateDot for other user ${data.userId}`);
+          // --- END DEBUG LOGGING --- 
+          this.updateDot(
+            data.userId,
+            data.position.x,
+            data.position.y, 
+            data.position.color
+          );
+        } else {
+          logDebug(`Received dot_update without position for user ${data.userId}`, 'warning');
+        }
+      } else {
+        // --- DEBUG LOGGING --- 
+        console.log(`DotGameFrontend [${this.instanceId}]: Ignored own dot_update for user ${data.userId}`);
+        // --- END DEBUG LOGGING --- 
       }
     });
     
     // Handle user join events
-    await subscribeToChannel(this.channel, 'user_joined', (message) => {
-      const data = message.data;
+    await subscribeToChannel(this.channel, 'user_joined', (data) => {
       logDebug(`User joined: ${data.userId}`);
       this.setStatus(`User joined: ${data.userId}`);
       
       // If we receive our own join message back, ignore it
       if (data.userId === this.userId) return;
       
-      // If this is a new user joining, send our current position to them
-      this.sendPosition(
-        this.dots.has(this.userId) 
-          ? parseFloat(this.dots.get(this.userId).style.left) + 10 // Adjust for centering
-          : Math.random() * 500,
-        this.dots.has(this.userId)
-          ? parseFloat(this.dots.get(this.userId).style.top) + 10 // Adjust for centering
-          : Math.random() * 300
-      );
+      // When another user joins, we don't need to explicitly send our position,
+      // the server's onJoin -> state_sync flow or their request_state should handle it.
     });
     
     // Handle user leave events
-    await subscribeToChannel(this.channel, 'user_left', (message) => {
-      const data = message.data;
+    await subscribeToChannel(this.channel, 'user_left', (data) => {
       logDebug(`User left: ${data.userId}`);
       this.setStatus(`User left: ${data.userId}`);
       
       // Remove the dot for this user
       if (this.dots.has(data.userId)) {
-        this.dotDisplay.removeChild(this.dots.get(data.userId));
+        const dotToRemove = this.dots.get(data.userId);
+        if (dotToRemove && dotToRemove.parentNode === this.dotDisplay) {
+           this.dotDisplay.removeChild(dotToRemove);
+        }
         this.dots.delete(data.userId);
       }
     });
     
-    // Handle state sync requests
-    await subscribeToChannel(this.channel, 'request_state', (message) => {
-      const data = message.data;
-      
-      // Only respond if we have our position and it's not our own request
-      if (data.userId !== this.userId && this.dots.has(this.userId)) {
-        const dot = this.dots.get(this.userId);
-        const x = parseFloat(dot.style.left) + 10; // Adjust for centering
-        const y = parseFloat(dot.style.top) + 10;  // Adjust for centering
-        
-        this.sendPosition(x, y);
-      }
-    });
+    // Handle state sync requests (client doesn't need to handle this, only send)
+    // await subscribeToChannel(this.channel, 'request_state', (data) => { ... });
   }
   
   sendPosition(x, y) {

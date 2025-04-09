@@ -207,9 +207,20 @@ export function setupWebSocketLogging(socket, prefix = '') {
  
   // Enhance onmessage
   socket.onmessage = (event) => {
+    // --- DEBUG LOGGING --- 
+    console.log("Client WebSocket received raw data:", event.data);
+    // --- END DEBUG LOGGING --- 
     try {
       const data = JSON.parse(event.data);
-      logDebug(`${prefix}WebSocket received: ${data.type}`);
+      // --- DEBUG LOGGING --- 
+      console.log("Client WebSocket parsed message:", data);
+      // --- END DEBUG LOGGING --- 
+      // Add more detailed logging for debugging
+      if (data.type === 'publish') {
+        logDebug(`${prefix}WebSocket received: ${data.type}, channel: ${data.channel}, event: ${data.event}`);
+      } else {
+        logDebug(`${prefix}WebSocket received: ${data.type}`);
+      }
     } catch (e) {
       logDebug(`${prefix}WebSocket received non-JSON message`);
     }
@@ -437,8 +448,14 @@ export function getWebSocketInstance() {
         const message = JSON.parse(event.data);
        
         // Handle different message types
-        if (message.type === 'message' && message.channel && message.event) {
+        if (message.type === 'publish' && message.channel && message.event) {
           // Find channel and dispatch message to subscribers
+          const channel = wsChannels[message.channel];
+          if (channel) {
+            channel.dispatchEvent(message.event, message.data);
+          }
+        } else if (message.type === 'message' && message.channel && message.event) {
+          // Handle legacy message format
           const channel = wsChannels[message.channel];
           if (channel) {
             channel.dispatchEvent(message.event, message.data);
@@ -567,11 +584,16 @@ class WebSocketChannel {
   dispatchEvent(eventName, data) {
     if (!this.eventHandlers.has(eventName)) return;
    
+    // --- DEBUG LOGGING ---
+    console.log(`WebSocketChannel [${this.name}]: Dispatching event '${eventName}' with data:`, data);
+    // --- END DEBUG LOGGING ---
+
     this.eventHandlers.get(eventName).forEach(callback => {
       try {
-        callback({ data });
+        // Pass the data payload DIRECTLY to the callback
+        callback(data); 
       } catch (error) {
-        logDebug(`Error in event handler: ${error.message}`, 'error');
+        logDebug(`Error in event handler for '${eventName}': ${error.message}`, 'error');
       }
     });
   }
@@ -634,4 +656,25 @@ export function reconnectWebSocket() {
   }
  
   return getWebSocketInstance();
+}
+
+// Join a game room via WebSocket
+export function joinGameRoom(instanceId, userId, gameType = 'lobby') {
+  const ws = getWebSocketInstance();
+  
+  if (ws && ws.readyState === WebSocket.OPEN) {
+    const joinMessage = {
+      type: 'join_room',
+      instanceId,
+      userId,
+      gameType
+    };
+    
+    logDebug(`Joining game room: ${gameType} in instance ${instanceId} as user ${userId}`);
+    ws.send(JSON.stringify(joinMessage));
+    return true;
+  } else {
+    logDebug('Cannot join room: WebSocket not connected', 'error');
+    return false;
+  }
 } 

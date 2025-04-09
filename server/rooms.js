@@ -49,11 +49,25 @@ class Room {
   broadcast(message, exceptSocket = null) {
     const messageStr = typeof message === 'string' ? message : JSON.stringify(message);
     
+    // --- DEBUG LOGGING --- 
+    let recipients = [];
+    // --- END DEBUG LOGGING --- 
+
     for (const participant of this.participants) {
       if (participant !== exceptSocket && participant.readyState === 1) { // 1 = WebSocket.OPEN
+        // --- DEBUG LOGGING --- 
+        recipients.push(participant.userId || 'unknown');
+        // --- END DEBUG LOGGING --- 
         participant.send(messageStr);
       }
     }
+    // --- DEBUG LOGGING --- 
+    if (recipients.length > 0) {
+      console.log(`Room [${this.instanceId}]: Broadcasting message to [${recipients.join(', ')}]`);
+    } else {
+      console.log(`Room [${this.instanceId}]: No recipients for broadcast (Sender: ${exceptSocket?.userId || 'N/A'})`);
+    }
+    // --- END DEBUG LOGGING --- 
   }
 
   // Methods to be overridden by specific game implementations

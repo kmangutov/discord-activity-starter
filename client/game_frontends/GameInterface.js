@@ -8,7 +8,8 @@ import {
   getWebSocketChannel, 
   subscribeToChannel,
   publishToChannel,
-  closeWebSocketConnection
+  closeWebSocketConnection,
+  joinGameRoom
 } from '../utils-websocket.js';
 
 class GameInterface {
@@ -45,9 +46,18 @@ class GameInterface {
    */
   async connectWebSocket() {
     try {
-      const channelName = `${this.getGameId()}-${this.instanceId}`;
+      // Send join_room message to server
+      const gameId = this.getGameId();
+      joinGameRoom(this.instanceId, this.userId, gameId);
+      
+      // Get channel for game-specific messages
+      const channelName = `${gameId}-${this.instanceId}`;
       this.channel = getWebSocketChannel(channelName);
+      
+      // Setup game-specific subscriptions
       await this.setupSubscriptions();
+      
+      // Send join message in the game channel
       this.sendJoinMessage();
       this.isConnected = true;
       return true;

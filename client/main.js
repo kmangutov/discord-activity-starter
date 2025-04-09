@@ -16,6 +16,25 @@ import {
 } from './utils-websocket.js';
 import "./style.css";
 
+// Check if running locally by examining URL params (no frame_id means we're local)
+const isLocalMode = !new URLSearchParams(window.location.search).get("frame_id");
+
+// Function to get or generate a unique ID for this browser tab
+const getLocalUserId = () => {
+  let localId = sessionStorage.getItem('local_user_id');
+  if (!localId) {
+    // Generate a more unique ID using random string + time
+    localId = `local-user-${Math.random().toString(36).substring(2, 9)}-${Date.now()}`;
+    sessionStorage.setItem('local_user_id', localId);
+    logDebug(`Generated new local user ID for this tab: ${localId}`);
+  }
+  return localId;
+};
+
+// Assign the user ID *once* only if in local mode
+const myUserId = isLocalMode ? getLocalUserId() : null;
+
+console.log('comon')
 // https://discord.com/developers/docs/activities/development-guides#instance-participants
 
 // Will eventually store the authenticated user's access_token
@@ -31,18 +50,70 @@ let appContainer;
 
 // Store WebSocket server URL for consistency
 const getWebSocketUrl = () => {
-  // Always use Discord URL format since we only run in Discord
+  // Use direct WebSocket URL when in local mode (to localhost server)
+  if (isLocalMode) {
+    return window.location.protocol === 'https:' 
+      ? `wss://${window.location.host}/ws`
+      : `ws://${window.location.host}/ws`;
+  }
+  // Use Discord URL format when in Discord
   return '/ws';
 };
 
-// Initialize the SDK with the client ID
-const discordSdk = new DiscordSDK(import.meta.env.VITE_DISCORD_CLIENT_ID);
+// Get API URL based on environment
+const getApiUrl = (endpoint) => {
+  return isLocalMode ? `/api/${endpoint}` : `/.proxy/api/${endpoint}`;
+};
+
+// Initialize the SDK with the client ID or use mock in local mode
+let discordSdk;
+if (isLocalMode) {
+  // Use mock SDK in local mode, referencing the generated myUserId
+  discordSdk = {
+    instanceId: 'local-instance-123',
+    ready: () => Promise.resolve(),
+    subscribe: () => {},
+    commands: {
+      authorize: () => Promise.resolve({ code: 'local-code-123' }),
+      authenticate: () => Promise.resolve({ 
+        access_token: 'local-token-123',
+        user: {
+          id: myUserId, // Use the ID generated once
+          // Use a simpler display name derived from the unique part of the ID
+          username: `LocalUser_${myUserId.substring(myUserId.length - 6)}`,
+          global_name: `Local User ${myUserId.substring(myUserId.length - 6)}`
+        }
+      }),
+      getInstanceConnectedParticipants: () => {
+        // Include the current user and a fixed other user for testing
+        return Promise.resolve([
+          {
+            id: myUserId, // Use the ID generated once
+            username: `LocalUser_${myUserId.substring(myUserId.length - 6)}`,
+            global_name: `Local User ${myUserId.substring(myUserId.length - 6)}`
+          },
+          { // Fixed "other" user for testing
+            id: 'local-user-fixed-other',
+            username: 'OtherUser',
+            global_name: 'Other Test User'
+          }
+        ]);
+      }
+    },
+  };
+  logDebug('Running in local mode with SDK mock');
+  logDebug(`Local user ID: ${myUserId}`); // Log the ID being used
+} else {
+  // Use real Discord SDK when in Discord
+  discordSdk = new DiscordSDK(import.meta.env.VITE_DISCORD_CLIENT_ID);
+  logDebug('Running in Discord mode with real SDK');
+}
 
 // Initialize the app
 document.addEventListener('DOMContentLoaded', async () => {
   // Set up the app container
   document.querySelector('#app').innerHTML = `
-    <div id="app-content"></div>
+    <div id="app-content"></div><h1>hello</h1>
   `;
   
   appContainer = document.getElementById('app-content');
@@ -60,87 +131,36 @@ document.addEventListener('DOMContentLoaded', async () => {
   logDebug('Application initialized');
   logDebug(`Discord instanceId: ${discordSdk.instanceId}`);
   
-  // Apply URL mappings for Discord sandbox - MUST be done before any WebSocket connections
-  try {
-    // Hard-code isProd to true since app only runs in Discord
-    const isProd = true;
-    
-    logDebug('Running in Discord - applying URL mappings');
-    logDebug('Current URL before mapping: ' + window.location.href);
-    
-    // Use the patchUrlMappings API to route requests through Discord's proxy
-    await patchUrlMappings([
-      // Single root mapping that handles all paths including WebSockets
-      { prefix: '/', target: 'brebiskingactivity-production.up.railway.app' }
-    ]);
-    
-    logDebug('URL mappings applied successfully');
-    logDebug('URL after mapping: ' + window.location.href);
-    
-    // IMPORTANT: Force a very short delay to allow mappings to take effect
-    await new Promise(resolve => setTimeout(resolve, 100));
-  } catch (error) {
-    logDebug(`Failed to apply URL mappings: ${error.message}`, 'error');
-    if (error.stack) {
-      logDebug(`Error stack: ${error.stack}`, 'error');
+  // Apply URL mappings for Discord sandbox - ONLY if not in local mode
+  if (!isLocalMode) {
+    try {
+      // Hard-code isProd to true since app only runs in Discord
+      const isProd = true;
+      
+      logDebug('Running in Discord - applying URL mappings');
+      logDebug('Current URL before mapping: ' + window.location.href);
+      
+      // Use the patchUrlMappings API to route requests through Discord's proxy
+      await patchUrlMappings([
+        // Single root mapping that handles all paths including WebSockets
+        { prefix: '/', target: 'brebiskingactivity-production.up.railway.app' }
+      ]);
+      
+      logDebug('URL mappings applied successfully');
+      logDebug('URL after mapping: ' + window.location.href);
+      
+      // IMPORTANT: Force a very short delay to allow mappings to take effect
+      await new Promise(resolve => setTimeout(resolve, 100));
+    } catch (error) {
+      logDebug(`Failed to apply URL mappings: ${error.message}`, 'error');
+      if (error.stack) {
+        logDebug(`Error stack: ${error.stack}`, 'error');
+      }
     }
   }
   
-  // Initialize WebSocket connection only after mappings are applied
-  try {
-    logDebug('Initializing WebSocket connection...', 'info');
-    
-    // Log environment for troubleshooting
-    const envDetails = {
-      isInDiscord: isInDiscordEnvironment(),
-      clientId: discordSdk?.instanceId,
-      protocol: window.location.protocol,
-      host: window.location.host,
-      userAgent: navigator.userAgent,
-      wsUrl: getWebSocketUrl()
-    };
-    logDebug(`Environment details: ${JSON.stringify(envDetails)}`, 'info');
-    
-    const ws = getWebSocketInstance();
-    if (ws) {
-      logDebug('WebSocket initialized successfully');
-    } else {
-      logDebug('Failed to initialize WebSocket - instance is null', 'error');
-    }
-    
-    // Add fallback for persistent connection issues
-    let connectionAttempts = 0;
-    const checkConnectionState = () => {
-      connectionAttempts++;
-      const state = ws ? ws.readyState : -1;
-      const stateStr = ['CONNECTING', 'OPEN', 'CLOSING', 'CLOSED'][state] || 'UNKNOWN';
-      
-      if (state === WebSocket.OPEN) {
-        logDebug('WebSocket connection verified as connected');
-        return; // Success
-      } else if (connectionAttempts > 3) {
-        logDebug(`WebSocket still not connected after ${connectionAttempts} checks, state: ${stateStr}`, 'warning');
-        logDebug('WebSocket connection issues detected', 'warning');
-        
-        // Try to reconnect one last time
-        try {
-          logDebug('Attempting emergency WebSocket reconnection...', 'warning');
-          getWebSocketInstance();
-        } catch (error) {
-          logDebug(`Failed emergency reconnection: ${error.message}`, 'error');
-        }
-      } else {
-        // Try again after a delay
-        setTimeout(checkConnectionState, 5000);
-      }
-    };
-    
-    // Check connection status after a delay
-    setTimeout(checkConnectionState, 5000);
-  } catch (error) {
-    logDebug(`Failed to initialize WebSocket: ${error.message}`, 'error');
-    logDebug(`Error stack: ${error.stack || 'No stack trace available'}`, 'error');
-  }
+  // Initialize WebSocket for both local and Discord modes
+  await initializeWebSocket();
   
   setupDiscordSdk().then(() => {
     logDebug("Discord SDK is authenticated");
@@ -174,6 +194,21 @@ async function setupDiscordSdk() {
     await discordSdk.ready();
     logDebug("Discord SDK is ready");
     
+    // Mock authentication in local mode
+    if (isLocalMode) {
+      logDebug("Using mock authentication for local mode");
+      // Ensure auth object uses the consistently generated myUserId
+      auth = {
+        access_token: 'local-token-123',
+        user: {
+          id: myUserId, // Use the ID generated once
+          username: `LocalUser_${myUserId.substring(myUserId.length - 6)}`,
+          global_name: `Local User ${myUserId.substring(myUserId.length - 6)}`
+        }
+      };
+      return auth;
+    }
+    
     // Log Discord environment info
     logDebug(`Current location: protocol=${window.location.protocol}, host=${window.location.host}, pathname=${window.location.pathname}`);
 
@@ -194,7 +229,7 @@ async function setupDiscordSdk() {
 
     // Retrieve an access_token from your activity's server
     logDebug("Retrieving access token...");
-    const response = await fetch("/.proxy/api/token", {
+    const response = await fetch(getApiUrl("token"), {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -313,7 +348,7 @@ function updateParticipants(newParticipants) {
 // Fetch available games from the server
 async function fetchAvailableGames() {
   try {
-    const response = await fetch('/.proxy/api/games');
+    const response = await fetch(getApiUrl('games'));
     const data = await response.json();
     
     // Handle both old format (array) and new format ({ games: array })
@@ -551,4 +586,32 @@ function showGameError(container, error, gameId) {
   retryButton.className = 'canvas-button';
   retryButton.addEventListener('click', () => startGame(gameId));
   container.appendChild(retryButton);
+}
+
+// Initialize WebSocket connection in both local and Discord modes
+async function initializeWebSocket() {
+  try {
+    logDebug('Initializing WebSocket connection...', 'info');
+    
+    // Log environment for troubleshooting
+    const envDetails = {
+      isInDiscord: isInDiscordEnvironment(),
+      clientId: discordSdk?.instanceId,
+      protocol: window.location.protocol,
+      host: window.location.host,
+      userAgent: navigator.userAgent,
+      wsUrl: getWebSocketUrl()
+    };
+    logDebug(`Environment details: ${JSON.stringify(envDetails)}`, 'info');
+    
+    const ws = getWebSocketInstance();
+    if (ws) {
+      logDebug('WebSocket initialized successfully');
+    } else {
+      logDebug('Failed to initialize WebSocket - instance is null', 'error');
+    }
+  } catch (error) {
+    logDebug(`Failed to initialize WebSocket: ${error.message}`, 'error');
+    logDebug(`Error stack: ${error.stack || 'No stack trace available'}`, 'error');
+  }
 }
