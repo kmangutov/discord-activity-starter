@@ -101,3 +101,33 @@ button:disabled {
 .connecting {
   background-color: #faa61a;
 }
+
+/* Debug message styling */
+.debug-message {
+  background-color: #2a2d31;
+  border-left: 3px solid #f7b731;
+  padding: 8px;
+  margin-bottom: 10px;
+  font-family: monospace;
+}
+
+.debug-title {
+  color: #f7b731;
+  font-weight: bold;
+  margin-bottom: 5px;
+}
+
+.debug-content {
+  max-height: 150px;
+  overflow-y: auto;
+  background-color: #202225;
+  padding: 5px;
+  border-radius: 3px;
+  font-size: 12px;
+}
+
+.debug-content pre {
+  margin: 0;
+  white-space: pre-wrap;
+  word-break: break-all;
+}

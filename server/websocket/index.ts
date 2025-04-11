@@ -53,6 +53,27 @@ interface ExtendedWebSocket extends WebSocket {
 const clients = new Map<ExtendedWebSocket, ClientInfo>();
 
 /**
+ * Enhanced logging function
+ * @param level - Log level
+ * @param message - Log message
+ * @param data - Optional data to log
+ */
+function serverLog(level: 'info' | 'warn' | 'error', message: string, data?: any): void {
+  const timestamp = new Date().toISOString();
+  const logPrefix = `[${timestamp}] [WebSocket] [${level.toUpperCase()}]`;
+  
+  if (data) {
+    if (typeof data === 'object') {
+      console[level](`${logPrefix} ${message}`, JSON.stringify(data, null, 2));
+    } else {
+      console[level](`${logPrefix} ${message}`, data);
+    }
+  } else {
+    console[level](`${logPrefix} ${message}`);
+  }
+}
+
+/**
  * Initialize WebSocket server
  * @param server - HTTP server instance
  * @returns WebSocket server instance
@@ -62,11 +83,11 @@ export function initWebSocketServer(server: Server): WebSocketServer {
   
   // Log WebSocket server events
   wss.on('listening', () => {
-    console.log('WebSocket server is listening for connections');
+    serverLog('info', 'WebSocket server is listening for connections');
   });
 
   wss.on('error', (error: Error) => {
-    console.error('WebSocket server error:', error);
+    serverLog('error', 'WebSocket server error:', error);
   });
 
   // WebSocket connection handler
@@ -81,12 +102,14 @@ export function initWebSocketServer(server: Server): WebSocketServer {
  * @param req - HTTP request
  */
 function handleConnection(ws: ExtendedWebSocket, req: IncomingMessage): void {
-  console.log('WebSocket client connected from:', req.socket.remoteAddress);
+  const clientIp = req.socket.remoteAddress;
+  serverLog('info', `New client connected from: ${clientIp}`);
   
   // Add a ping interval to keep connections alive
   const pingInterval = setInterval(() => {
     if (ws.readyState === WebSocket.OPEN) {
       ws.ping();
+      serverLog('info', `Ping sent to client ${ws.userId || 'Unknown'}`);
     }
   }, 30000);
   
@@ -94,14 +117,14 @@ function handleConnection(ws: ExtendedWebSocket, req: IncomingMessage): void {
   
   // Handle WebSocket-specific errors
   ws.on('error', (error: Error) => {
-    console.error('WebSocket client error:', error);
+    serverLog('error', `Client error for user ${ws.userId || 'Unknown'}:`, error);
     clearInterval(pingInterval);
     clients.delete(ws);
   });
   
   // Handle disconnection
   ws.on('close', () => {
-    console.log(`WebSocket client disconnected - User: ${ws.userId || 'Unknown'}`);
+    serverLog('info', `Client disconnected - User: ${ws.userId || 'Unknown'}`);
     
     clearInterval(pingInterval);
     
@@ -109,10 +132,12 @@ function handleConnection(ws: ExtendedWebSocket, req: IncomingMessage): void {
     clients.delete(ws);
     
     if (clientInfo) {
-      broadcastToInstance(clientInfo.instanceId, {
+      const eventData = {
         type: 'user_left',
         userId: clientInfo.userId
-      });
+      };
+      serverLog('info', `Broadcasting user_left event:`, eventData);
+      broadcastToInstance(clientInfo.instanceId, eventData);
     }
   });
 }
@@ -124,15 +149,19 @@ function handleConnection(ws: ExtendedWebSocket, req: IncomingMessage): void {
  */
 function handleMessage(ws: ExtendedWebSocket, message: Buffer): void {
   try {
-    console.log('WebSocket message received:', message.toString().substring(0, 200));
-    const data = JSON.parse(message.toString()) as WebSocketMessage;
+    const messageStr = message.toString();
+    serverLog('info', `Message received from ${ws.userId || 'Unknown'}: ${messageStr}`);
+    
+    const data = JSON.parse(messageStr) as WebSocketMessage;
     
     // Handle initial connection message with userId
     if (data.type === 'join') {
       const { userId, instanceId, activityId } = data;
       
       if (!userId) {
-        ws.send(JSON.stringify({ type: 'error', message: 'Missing userId' }));
+        const errorData = { type: 'error', message: 'Missing userId' };
+        serverLog('error', 'Join attempt without userId', data);
+        ws.send(JSON.stringify(errorData));
         return;
       }
       
@@ -140,32 +169,35 @@ function handleMessage(ws: ExtendedWebSocket, message: Buffer): void {
       ws.userId = userId;
       ws.instanceId = instanceId;
       if (activityId) {
-        ws.activityId = activityId;
-        console.log(`User ${userId} joined Discord activity ${activityId}`);
+        serverLog('info', `User ${userId} joined Discord activity ${activityId} in instance ${instanceId}`);
       } else {
-        console.log(`User ${userId} joined local session ${instanceId}`);
+        serverLog('info', `User ${userId} joined local session in instance ${instanceId}`);
       }
       
       // Add to clients map
       clients.set(ws, { userId, instanceId });
       
       // Notify all clients in the same instance about the new user
-      broadcastToInstance(instanceId, {
+      const eventData = {
         type: 'user_joined',
         userId: userId
-      }, ws);
+      };
+      serverLog('info', `Broadcasting user_joined event:`, eventData);
+      broadcastToInstance(instanceId, eventData, ws);
     } 
     // Handle message broadcasting
     else if (data.type === 'message' && ws.instanceId && 'message' in data) {
       // Broadcast the message to all clients in the same instance
-      broadcastToInstance(ws.instanceId, {
+      const messageData = {
         type: 'message',
         userId: ws.userId || '',
         message: data.message
-      });
+      };
+      serverLog('info', `Broadcasting message event:`, messageData);
+      broadcastToInstance(ws.instanceId, messageData);
     }
   } catch (error) {
-    console.error('Error processing WebSocket message:', error);
+    serverLog('error', `Error processing message:`, error);
     ws.send(JSON.stringify({ type: 'error', message: 'Invalid message format' }));
   }
 }
@@ -177,13 +209,23 @@ function handleMessage(ws: ExtendedWebSocket, message: Buffer): void {
  * @param excludeSocket - Optional socket to exclude from broadcast
  */
 export function broadcastToInstance(instanceId: string, data: object, excludeSocket: ExtendedWebSocket | null = null): void {
+  const clientCount = Array.from(clients.entries())
+    .filter(([client, info]) => info.instanceId === instanceId)
+    .length;
+  
+  serverLog('info', `Broadcasting to instance ${instanceId} (${clientCount} clients)`);
+  
+  let sentCount = 0;
   clients.forEach((clientInfo, client) => {
     if (client !== excludeSocket && 
         client.readyState === WebSocket.OPEN && 
         clientInfo.instanceId === instanceId) {
       client.send(JSON.stringify(data));
+      sentCount++;
     }
   });
+  
+  serverLog('info', `Broadcast complete - sent to ${sentCount} clients`);
 }
 
 /**

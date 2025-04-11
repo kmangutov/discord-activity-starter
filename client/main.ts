@@ -26,6 +26,13 @@ async function initApp(): Promise<void> {
   // Add form submit handler
   ui.onSubmit(handleMessageSubmit);
   
+  // Show debug welcome message
+  ui.displayDebugMessage('Application started', {
+    timestamp: new Date().toISOString(),
+    environment: import.meta.env.MODE,
+    version: '1.0.0'
+  });
+  
   // Get URL parameters
   params = discord.getUrlParams();
   

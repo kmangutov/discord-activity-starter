@@ -1,3 +1,5 @@
+import * as ui from './ui.js';
+
 /**
  * Simple WebSocket connection manager
  */
@@ -32,6 +34,29 @@ let onConnectHandlers: ConnectHandler[] = [];
 let onDisconnectHandlers: DisconnectHandler[] = [];
 let onErrorHandlers: ErrorHandler[] = [];
 
+// Whether to show debug messages in UI
+const DEBUG_MODE = true;
+
+/**
+ * Client-side debug logger
+ */
+function clientLog(level: 'info' | 'warn' | 'error', message: string, data?: any): void {
+  const timestamp = new Date().toISOString();
+  const prefix = `[${timestamp}] [WebSocket] [${level.toUpperCase()}]`;
+  
+  // Console logging
+  if (data) {
+    console[level](`${prefix} ${message}`, data);
+  } else {
+    console[level](`${prefix} ${message}`);
+  }
+  
+  // UI logging if debug mode is enabled
+  if (DEBUG_MODE) {
+    ui.displayDebugMessage(`${level.toUpperCase()}: ${message}`, data || '');
+  }
+}
+
 /**
  * Get the WebSocket URL based on environment
  * @returns WebSocket URL
@@ -50,6 +75,8 @@ export function connect(user: UserInfo): void {
   // Store user info for reconnect
   userInfo = user;
   
+  clientLog('info', 'Connecting to WebSocket server', { url: getWebSocketUrl(), user });
+  
   // Clear any existing reconnect timer
   if (reconnectTimer) {
     clearTimeout(reconnectTimer);
@@ -61,11 +88,12 @@ export function connect(user: UserInfo): void {
   
   // Set up event handlers
   socket.onopen = () => {
-    console.log('WebSocket connected');
+    clientLog('info', 'WebSocket connected');
     connected = true;
     
     // Send join message with user info
     if (userInfo) {
+      clientLog('info', 'Sending join message', userInfo);
       send('join', userInfo);
     }
     
@@ -75,7 +103,10 @@ export function connect(user: UserInfo): void {
   
   socket.onmessage = (event: MessageEvent) => {
     try {
-      const data = JSON.parse(event.data);
+      const rawData = event.data;
+      clientLog('info', 'Message received', rawData);
+      
+      const data = JSON.parse(rawData);
       
       switch (data.type) {
         case 'message':
@@ -88,16 +119,17 @@ export function connect(user: UserInfo): void {
           onUserLeftHandlers.forEach(handler => handler(data.userId));
           break;
         case 'error':
+          clientLog('error', 'Error from server', data);
           onErrorHandlers.forEach(handler => handler(data.message));
           break;
       }
     } catch (error) {
-      console.error('Error processing message:', error);
+      clientLog('error', 'Error processing message', error);
     }
   };
   
   socket.onclose = () => {
-    console.log('WebSocket disconnected');
+    clientLog('info', 'WebSocket disconnected');
     connected = false;
     socket = null;
     
@@ -106,8 +138,9 @@ export function connect(user: UserInfo): void {
     
     // Reconnect after delay
     if (userInfo) {
+      clientLog('info', 'Scheduling reconnect attempt in 5 seconds');
       reconnectTimer = window.setTimeout(() => {
-        console.log('Attempting to reconnect...');
+        clientLog('info', 'Attempting to reconnect');
         if (userInfo) {
           connect(userInfo);
         }
@@ -116,7 +149,7 @@ export function connect(user: UserInfo): void {
   };
   
   socket.onerror = (error: Event) => {
-    console.error('WebSocket error:', error);
+    clientLog('error', 'WebSocket error', error);
     onErrorHandlers.forEach(handler => handler('Connection error'));
   };
 }
@@ -208,13 +241,17 @@ export function off(
  */
 export function send(type: string, data: Record<string, any> = {}): boolean {
   if (!socket || socket.readyState !== WebSocket.OPEN) {
+    clientLog('error', 'Cannot send message - not connected');
     return false;
   }
   
-  socket.send(JSON.stringify({
+  const message = JSON.stringify({
     type,
     ...data
-  }));
+  });
+  
+  clientLog('info', `Sending ${type} message`, data);
+  socket.send(message);
   
   return true;
 }

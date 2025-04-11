@@ -126,4 +126,45 @@ export function onSubmit(callback: (message: string) => void): void {
       }
     });
   }
+}
+
+/**
+ * Display debug message with raw data
+ * @param title - Debug message title
+ * @param data - Raw data to display
+ */
+export function displayDebugMessage(title: string, data: any): void {
+  if (!messagesEl) return;
+  
+  const messageDiv = document.createElement('div');
+  messageDiv.className = 'message debug-message';
+  
+  const titleDiv = document.createElement('div');
+  titleDiv.className = 'debug-title';
+  titleDiv.textContent = `🐞 ${title}`;
+  
+  const contentDiv = document.createElement('div');
+  contentDiv.className = 'debug-content';
+  
+  let content = '';
+  if (typeof data === 'object') {
+    try {
+      content = JSON.stringify(data, null, 2);
+    } catch (e) {
+      content = String(data);
+    }
+  } else {
+    content = String(data);
+  }
+  
+  // Create a pre element for formatted display
+  const pre = document.createElement('pre');
+  pre.textContent = content;
+  contentDiv.appendChild(pre);
+  
+  messageDiv.appendChild(titleDiv);
+  messageDiv.appendChild(contentDiv);
+  
+  messagesEl.appendChild(messageDiv);
+  scrollToBottom();
 } 
