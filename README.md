@@ -8,6 +8,7 @@ A simplified Discord Activity implementation that demonstrates the core function
 - Real-time messaging via WebSockets
 - Works both in Discord and as a standalone web app
 - Simple, clean architecture with no game-specific logic
+- TypeScript throughout for better type safety and developer experience
 
 ## Architecture
 
@@ -21,18 +22,29 @@ This project follows the architecture outlined in the [architecture.md](./archit
 ## Project Structure
 
 ```
-├── client/               # Frontend code
-│   ├── index.html        # Basic HTML structure
-│   ├── main.js           # Client-side JavaScript with Discord SDK integration
-│   ├── package.json      # Client dependencies
+├── client/                 # Frontend code
+│   ├── js/                 # Client-side modules
+│   │   ├── discord.ts      # Discord SDK integration
+│   │   ├── ui.ts           # UI handling functions
+│   │   ├── utils.ts        # Utility functions
+│   │   └── websocket.ts    # WebSocket client implementation
+│   ├── index.html          # Basic HTML structure
+│   ├── main.ts             # Main client-side TypeScript with Discord SDK integration
+│   ├── tsconfig.json       # TypeScript configuration for client
+│   ├── vite.config.ts      # Vite build configuration
+│   ├── env.d.ts            # TypeScript definitions for environment variables
+│   └── package.json        # Client dependencies
 │
-├── server/               # Backend code
-│   ├── server.js         # Express server with WebSocket handling
-│   ├── package.json      # Server dependencies
+├── server/                 # Backend code
+│   ├── websocket/          # WebSocket server modules
+│   │   └── index.ts        # WebSocket connection handling
+│   ├── server.ts           # Express server with WebSocket handling
+│   ├── tsconfig.json       # TypeScript configuration for server
+│   └── package.json        # Server dependencies
 │
-├── .env.example          # Example environment variables
-├── package.json          # Root package.json with scripts
-└── architecture.md       # Architecture documentation
+├── .env.example            # Example environment variables
+├── package.json            # Root package.json with scripts
+└── architecture.md         # Architecture documentation
 ```
 
 ## Setup
@@ -41,9 +53,7 @@ This project follows the architecture outlined in the [architecture.md](./archit
 2. Copy `.env.example` to `.env` and fill in your Discord credentials
 3. Install dependencies:
    ```
-   npm install
-   cd server && npm install
-   cd client && npm install
+   npm run install:deps
    ```
 
 4. Create a Discord Application at https://discord.com/developers/applications
