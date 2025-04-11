@@ -3,8 +3,12 @@
   "version": "1.0.0",
   "description": "Discord Activity with WebSocket communication",
   "type": "module",
+  "engines": {
+    "node": ">=18.0.0"
+  },
   "scripts": {
     "start": "node server/dist/server.js",
+    "prebuild": "npm install -g typescript && npm run install:deps",
     "build": "cd server && npm run build && cd ../client && npm run build",
     "dev": "concurrently \"cd server && npm run dev\" \"cd client && npm run dev\"",
     "build:server": "cd server && npm run build",
@@ -12,6 +16,7 @@
     "install:deps": "npm install && cd server && npm install && cd ../client && npm install"
   },
   "dependencies": {
-    "concurrently": "^8.2.2"
+    "concurrently": "^8.0.0",
+    "typescript": "^5.3.3"
   }
 }
