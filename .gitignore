@@ -7,12 +7,7 @@ yarn-error.log*
 pnpm-debug.log*
 lerna-debug.log*
 
-node_modules
-
-# Sensitive environment variables
-.env
-
-# Modules + built files
+# Node
 node_modules
 dist
 dist-ssr
@@ -28,3 +23,10 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# Environment variables
+.env
+.env.production
+
+# Build files
+client/dist/

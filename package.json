@@ -1,7 +1,7 @@
 {
-  "name": "viber",
+  "name": "discord-activity",
   "version": "1.0.0",
-  "description": "Vite app with Express backend",
+  "description": "Discord Activity with WebSocket communication",
   "type": "module",
   "scripts": {
     "start": "node server/server.js",

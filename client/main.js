@@ -1,617 +1,241 @@
-import { DiscordSDK, Events, patchUrlMappings } from "@discord/embedded-app-sdk";
-import CanvasGameFrontend from './game_frontends/CanvasGameFrontend.js';
-import DotGameFrontend from './game_frontends/DotGameFrontend.js';
-import rocketLogo from '/rocket.png';
-import { 
-  logDebug, 
-  setupConsoleOverrides, 
-  renderParticipants, 
-  createDebugConsole,
-  getWebSocketInstance,
-  isInDiscordEnvironment,
-  setupXHRErrorMonitoring,
-  getWebSocketChannel,
-  closeWebSocketConnection,
-  reconnectWebSocket
-} from './utils-websocket.js';
-import "./style.css";
+import { DiscordSDK } from '@discord/embedded-app-sdk';
 
-// Check if running locally by examining URL params (no frame_id means we're local)
-const isLocalMode = !new URLSearchParams(window.location.search).get("frame_id");
+// Initialize Discord SDK if running in Discord
+let discordSDK;
+const isDiscordActivity = window.location.search.includes('activityId');
 
-// Function to get or generate a unique ID for this browser tab
-const getLocalUserId = () => {
-  let localId = sessionStorage.getItem('local_user_id');
-  if (!localId) {
-    // Generate a more unique ID using random string + time
-    localId = `local-user-${Math.random().toString(36).substring(2, 9)}-${Date.now()}`;
-    sessionStorage.setItem('local_user_id', localId);
-    logDebug(`Generated new local user ID for this tab: ${localId}`);
-  }
-  return localId;
+// Generate a random user ID for local testing
+const generateUserId = () => {
+  return Math.random().toString(36).substring(2, 10);
 };
 
-// Assign the user ID *once* only if in local mode
-const myUserId = isLocalMode ? getLocalUserId() : null;
-
-console.log('comon')
-// https://discord.com/developers/docs/activities/development-guides#instance-participants
-
-// Will eventually store the authenticated user's access_token
-let auth;
-// Store participants data
-let participants = [];
-// Store the current active game
-let currentGame = null;
-// Store available games
-let availableGames = [];
-// Store the main app container
-let appContainer;
-
-// Store WebSocket server URL for consistency
-const getWebSocketUrl = () => {
-  // Use direct WebSocket URL when in local mode (to localhost server)
-  if (isLocalMode) {
-    return window.location.protocol === 'https:' 
-      ? `wss://${window.location.host}/ws`
-      : `ws://${window.location.host}/ws`;
-  }
-  // Use Discord URL format when in Discord
-  return '/ws';
-};
-
-// Get API URL based on environment
-const getApiUrl = (endpoint) => {
-  return isLocalMode ? `/api/${endpoint}` : `/.proxy/api/${endpoint}`;
-};
-
-// Initialize the SDK with the client ID or use mock in local mode
-let discordSdk;
-if (isLocalMode) {
-  // Use mock SDK in local mode, referencing the generated myUserId
-  discordSdk = {
-    instanceId: 'local-instance-123',
-    ready: () => Promise.resolve(),
-    subscribe: () => {},
-    commands: {
-      authorize: () => Promise.resolve({ code: 'local-code-123' }),
-      authenticate: () => Promise.resolve({ 
-        access_token: 'local-token-123',
-        user: {
-          id: myUserId, // Use the ID generated once
-          // Use a simpler display name derived from the unique part of the ID
-          username: `LocalUser_${myUserId.substring(myUserId.length - 6)}`,
-          global_name: `Local User ${myUserId.substring(myUserId.length - 6)}`
-        }
-      }),
-      getInstanceConnectedParticipants: () => {
-        // Include the current user and a fixed other user for testing
-        return Promise.resolve([
-          {
-            id: myUserId, // Use the ID generated once
-            username: `LocalUser_${myUserId.substring(myUserId.length - 6)}`,
-            global_name: `Local User ${myUserId.substring(myUserId.length - 6)}`
-          },
-          { // Fixed "other" user for testing
-            id: 'local-user-fixed-other',
-            username: 'OtherUser',
-            global_name: 'Other Test User'
-          }
-        ]);
-      }
-    },
+// Extract URL parameters
+const getUrlParams = () => {
+  const params = new URLSearchParams(window.location.search);
+  return {
+    instanceId: params.get('instanceId') || "local-instance", //Math.random().toString(36).substring(2, 10),
+    activityId: params.get('activityId'),
+    guildId: params.get('guildId'),
+    channelId: params.get('channelId'),
   };
-  logDebug('Running in local mode with SDK mock');
-  logDebug(`Local user ID: ${myUserId}`); // Log the ID being used
-} else {
-  // Use real Discord SDK when in Discord
-  discordSdk = new DiscordSDK(import.meta.env.VITE_DISCORD_CLIENT_ID);
-  logDebug('Running in Discord mode with real SDK');
-}
+};
 
-// Initialize the app
-document.addEventListener('DOMContentLoaded', async () => {
-  // Set up the app container
-  document.querySelector('#app').innerHTML = `
-    <div id="app-content"></div><h1>hello</h1>
-  `;
+// Get the WebSocket URL based on environment
+const getWebSocketUrl = () => {
+  const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+  const host = import.meta.env.VITE_WS_HOST || window.location.host;
+  return `${protocol}//${host}`;
+};
+
+// Main application class
+class ChatApp {
+  constructor() {
+    this.userId = null;
+    this.username = "User-" + generateUserId();
+    this.discordData = null;
+    this.socket = null;
+    this.connected = false;
+    this.params = getUrlParams();
+    
+    // DOM elements
+    this.statusEl = document.getElementById('status');
+    this.messagesEl = document.getElementById('messages');
+    this.messageForm = document.getElementById('message-form');
+    this.messageInput = document.getElementById('message-input');
+    
+    // Initialize
+    this.init();
+  }
   
-  appContainer = document.getElementById('app-content');
-  
-  // Create debug console
-  createDebugConsole(appContainer);
-  
-  // Setup console overrides
-  setupConsoleOverrides();
-  
-  // Set up XHR error monitoring
-  setupXHRErrorMonitoring();
-  
-  // Log initial info
-  logDebug('Application initialized');
-  logDebug(`Discord instanceId: ${discordSdk.instanceId}`);
-  
-  // Apply URL mappings for Discord sandbox - ONLY if not in local mode
-  if (!isLocalMode) {
-    try {
-      // Hard-code isProd to true since app only runs in Discord
-      const isProd = true;
-      
-      logDebug('Running in Discord - applying URL mappings');
-      logDebug('Current URL before mapping: ' + window.location.href);
-      
-      // Use the patchUrlMappings API to route requests through Discord's proxy
-      await patchUrlMappings([
-        // Single root mapping that handles all paths including WebSockets
-        { prefix: '/', target: 'brebiskingactivity-production.up.railway.app' }
-      ]);
-      
-      logDebug('URL mappings applied successfully');
-      logDebug('URL after mapping: ' + window.location.href);
-      
-      // IMPORTANT: Force a very short delay to allow mappings to take effect
-      await new Promise(resolve => setTimeout(resolve, 100));
-    } catch (error) {
-      logDebug(`Failed to apply URL mappings: ${error.message}`, 'error');
-      if (error.stack) {
-        logDebug(`Error stack: ${error.stack}`, 'error');
-      }
+  async init() {
+    // Add event listeners
+    this.messageForm.addEventListener('submit', (e) => this.handleSubmit(e));
+    
+    if (isDiscordActivity) {
+      await this.initDiscord();
+    } else {
+      // For local testing, just generate a random user ID
+      this.userId = generateUserId();
+      this.connectWebSocket();
     }
   }
   
-  // Initialize WebSocket for both local and Discord modes
-  await initializeWebSocket();
-  
-  setupDiscordSdk().then(() => {
-    logDebug("Discord SDK is authenticated");
-    logDebug(`Using instance ID: ${discordSdk.instanceId}`);
+  async initDiscord() {
+    // Update status
+    this.updateStatus('connecting', 'Initializing Discord...');
     
-    // Fetch initial participants
-    fetchParticipants();
-    
-    // Fetch available games and show the lobby once they're loaded
-    fetchAvailableGames()
-      .then(() => {
-        // Shows the lobby only after games are fetched
-        showLobby();
-      })
-      .catch(error => {
-        logDebug(`Error loading games: ${error.message}`, 'error');
-        // Still show the lobby with fallback games
-        showLobby();
+    try {
+      // Initialize Discord SDK
+      discordSDK = new DiscordSDK(import.meta.env.VITE_DISCORD_CLIENT_ID);
+      await discordSDK.ready();
+      
+      // Get authorization code
+      const { code } = await discordSDK.commands.authorize({
+        client_id: import.meta.env.VITE_DISCORD_CLIENT_ID,
+        response_type: "code",
+        state: "",
+        prompt: "none",
+        scope: ["identify"],
       });
-    
-    // Subscribe to participant updates
-    discordSdk.subscribe(Events.ACTIVITY_INSTANCE_PARTICIPANTS_UPDATE, updateParticipants);
-  }).catch(error => {
-    logDebug(`Failed to setup Discord SDK: ${error.message}`, 'error');
-  });
-});
-
-async function setupDiscordSdk() {
-  try {
-    logDebug("Waiting for Discord SDK to be ready...");
-    await discordSdk.ready();
-    logDebug("Discord SDK is ready");
-    
-    // Mock authentication in local mode
-    if (isLocalMode) {
-      logDebug("Using mock authentication for local mode");
-      // Ensure auth object uses the consistently generated myUserId
-      auth = {
-        access_token: 'local-token-123',
-        user: {
-          id: myUserId, // Use the ID generated once
-          username: `LocalUser_${myUserId.substring(myUserId.length - 6)}`,
-          global_name: `Local User ${myUserId.substring(myUserId.length - 6)}`
-        }
-      };
-      return auth;
-    }
-    
-    // Log Discord environment info
-    logDebug(`Current location: protocol=${window.location.protocol}, host=${window.location.host}, pathname=${window.location.pathname}`);
-
-    // Authorize with Discord Client
-    logDebug("Authorizing with Discord client...");
-    const { code } = await discordSdk.commands.authorize({
-      client_id: import.meta.env.VITE_DISCORD_CLIENT_ID,
-      response_type: "code",
-      state: "",
-      prompt: "none",
-      scope: [
-        "identify",
-        "guilds",
-        "applications.commands"
-      ],
-    });
-    logDebug("Authorization successful, received code");
-
-    // Retrieve an access_token from your activity's server
-    logDebug("Retrieving access token...");
-    const response = await fetch(getApiUrl("token"), {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        code,
-      }),
-    });
-    
-    if (!response.ok) {
-      const errorText = await response.text();
-      throw new Error(`Token fetch failed with status ${response.status}: ${errorText}`);
-    }
-    
-    const tokenData = await response.json();
-    logDebug("Access token retrieved successfully");
-    
-    if (!tokenData.access_token) {
-      throw new Error("No access_token in response: " + JSON.stringify(tokenData));
-    }
-    
-    const { access_token } = tokenData;
-
-    // Authenticate with Discord client (using the access_token)
-    logDebug("Authenticating with Discord...");
-    auth = await discordSdk.commands.authenticate({
-      access_token,
-    });
-
-    if (auth == null) {
-      throw new Error("Authenticate command failed with null response");
-    }
-    
-    logDebug("Authentication successful");
-    
-    // Reconnect WebSocket after authentication to ensure proper connectivity
-    logDebug("Reconnecting WebSocket after Discord auth...");
-    reconnectWebSocket();
-    
-    return auth;
-  } catch (error) {
-    logDebug(`Discord SDK setup error: ${error.message}`, 'error');
-    if (error.stack) {
-      logDebug(`Error stack: ${error.stack}`, 'error');
-    }
-    throw error;
-  }
-}
-
-// Fetch participants in the activity
-async function fetchParticipants() {
-  try {
-    const response = await discordSdk.commands.getInstanceConnectedParticipants();
-    // Check what structure we're getting back
-    logDebug(`Participants response structure: ${JSON.stringify(response)}`);
-    
-    // Handle different response structures
-    if (Array.isArray(response)) {
-      participants = response;
-    } else if (response && typeof response === 'object') {
-      // If it's an object, try to find the participants array
-      // It might be in a property like 'users', 'participants', etc.
-      if (response.users) {
-        participants = response.users;
-      } else if (response.participants) {
-        participants = response.participants;
-      } else {
-        // Just log the keys we have
-        const keys = Object.keys(response);
-        logDebug(`Available keys in response: ${keys.join(', ')}`, 'warning');
-        participants = [];
+      
+      // Exchange code for token with backend
+      const response = await fetch('/api/token', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ code })
+      });
+      
+      if (!response.ok) {
+        throw new Error('Failed to authenticate with Discord');
       }
-    } else {
-      // Fallback to empty array if we can't determine the structure
-      logDebug('Unable to parse participants response', 'error');
-      participants = [];
-    }
-    
-    logDebug(`Fetched ${participants.length} participants`);
-    renderParticipants(participants);
-  } catch (error) {
-    logDebug(`Failed to fetch participants: ${error.message}`, 'error');
-    logDebug(`Error stack: ${error.stack}`, 'error');
-    participants = [];
-    renderParticipants(participants);
-  }
-}
-
-// Update participants when they change
-function updateParticipants(newParticipants) {
-  logDebug(`Participants update received: ${JSON.stringify(newParticipants)}`);
-  
-  // Similar handling as in fetchParticipants
-  if (Array.isArray(newParticipants)) {
-    participants = newParticipants;
-  } else if (newParticipants && typeof newParticipants === 'object') {
-    if (newParticipants.users) {
-      participants = newParticipants.users;
-    } else if (newParticipants.participants) {
-      participants = newParticipants.participants;
-    } else {
-      const keys = Object.keys(newParticipants);
-      logDebug(`Available keys in update: ${keys.join(', ')}`, 'warning');
-      // Don't update participants if we can't determine the structure
-      return;
-    }
-  } else {
-    logDebug('Unable to parse participants update', 'error');
-    return;
-  }
-  
-  logDebug(`Participants updated: ${participants.length} users in activity`);
-  renderParticipants(participants);
-}
-
-// Fetch available games from the server
-async function fetchAvailableGames() {
-  try {
-    const response = await fetch(getApiUrl('games'));
-    const data = await response.json();
-    
-    // Handle both old format (array) and new format ({ games: array })
-    if (data.games && Array.isArray(data.games)) {
-      availableGames = data.games;
-      logDebug(`Fetched ${availableGames.length} available games from games property`);
-    } else if (Array.isArray(data)) {
-      availableGames = data;
-      logDebug(`Fetched ${availableGames.length} available games from direct array`);
-    } else {
-      throw new Error(`Unexpected API response format: ${JSON.stringify(data)}`);
-    }
-    
-    logDebug(`Available games: ${JSON.stringify(availableGames)}`);
-  } catch (error) {
-    logDebug(`Failed to fetch available games: ${error.message}`, 'error');
-    // Set default available games if fetch fails
-    availableGames = [
-      { id: 'canvas', name: 'Simple Canvas', description: 'A collaborative drawing canvas' },
-      { id: 'dotgame', name: 'Dot Game', description: 'Simple multiplayer dot visualization' },
-      { id: 'lobby', name: 'Lobby', description: 'The default lobby' }
-    ];
-    // Log what we're using as fallback
-    logDebug(`Using ${availableGames.length} fallback games instead`);
-  }
-  
-  // Return available games for promise chaining
-  return availableGames;
-}
-
-// Show the lobby UI
-function showLobby() {
-  // Clean up any existing game
-  if (currentGame && currentGame.destroy) {
-    currentGame.destroy();
-    currentGame = null;
-  }
-  
-  // Clear the app container and preserve the debug console
-  const debugConsole = document.getElementById('debug-console');
-  appContainer.innerHTML = '';
-  if (debugConsole) {
-    appContainer.appendChild(debugConsole);
-  }
-  
-  // Create lobby header
-  const header = document.createElement('div');
-  header.className = 'lobby-header';
-  
-  const title = document.createElement('h1');
-  title.textContent = 'Discord Activity Lobby';
-  header.appendChild(title);
-  
-  const subtitle = document.createElement('p');
-  subtitle.textContent = 'Select a game to play:';
-  header.appendChild(subtitle);
-  
-  appContainer.appendChild(header);
-  
-  // Create game selection
-  const gameSelector = document.createElement('div');
-  gameSelector.className = 'game-selector';
-  
-  // Log what games are available before rendering
-  logDebug(`Rendering ${availableGames.length} games in the lobby`);
-  logDebug(`Available games: ${JSON.stringify(availableGames)}`);
-  
-  // Check if we have any displayable games
-  const displayableGames = availableGames.filter(game => game.id !== 'lobby');
-  
-  // Display message if no games are available to select
-  if (displayableGames.length === 0) {
-    const noGamesMessage = document.createElement('div');
-    noGamesMessage.className = 'no-games-message';
-    noGamesMessage.textContent = 'No games are currently available to play.';
-    gameSelector.appendChild(noGamesMessage);
-    
-    // Add retry button
-    const retryButton = document.createElement('button');
-    retryButton.textContent = 'Retry Loading Games';
-    retryButton.className = 'canvas-button';
-    retryButton.addEventListener('click', () => {
-      fetchAvailableGames()
-        .then(() => {
-          showLobby();
-        });
-    });
-    gameSelector.appendChild(retryButton);
-  } else {
-    // Render game cards for each game
-    displayableGames.forEach(game => {
-      const gameCard = document.createElement('div');
-      gameCard.className = 'game-card';
-      gameCard.addEventListener('click', () => startGame(game.id));
       
-      const gameTitle = document.createElement('h2');
-      gameTitle.textContent = game.name;
-      gameCard.appendChild(gameTitle);
+      const { access_token } = await response.json();
       
-      const gameDescription = document.createElement('p');
-      gameDescription.textContent = game.description;
-      gameCard.appendChild(gameDescription);
+      // Authenticate with Discord
+      const auth = await discordSDK.commands.authenticate({ access_token });
       
-      gameSelector.appendChild(gameCard);
-    });
-  }
-  
-  appContainer.appendChild(gameSelector);
-  
-  // Create the participants sidebar
-  const sidebarContainer = document.createElement('div');
-  sidebarContainer.className = 'sidebar-container';
-  
-  const participantsHeader = document.createElement('h2');
-  participantsHeader.textContent = 'Participants';
-  sidebarContainer.appendChild(participantsHeader);
-  
-  const participantsList = document.createElement('div');
-  participantsList.id = 'participants-list';
-  participantsList.className = 'participants-list';
-  sidebarContainer.appendChild(participantsList);
-  
-  appContainer.appendChild(sidebarContainer);
-  
-  // Render participants in the sidebar
-  renderParticipants(participants);
-}
-
-// Start a game
-function startGame(gameId) {
-  logDebug(`Starting game: ${gameId}`);
-  
-  // Clean up any existing game
-  if (currentGame && currentGame.destroy) {
-    currentGame.destroy();
-    currentGame = null;
-  }
-  
-  // Clear the app container and preserve the debug console
-  const debugConsole = document.getElementById('debug-console');
-  appContainer.innerHTML = '';
-  if (debugConsole) {
-    appContainer.appendChild(debugConsole);
-  }
-  
-  // Create game container
-  const gameContainer = document.createElement('div');
-  gameContainer.className = 'game-container';
-  appContainer.appendChild(gameContainer);
-  
-  // Create sidebar (will include participants)
-  const sidebarContainer = document.createElement('div');
-  sidebarContainer.className = 'sidebar-container game-sidebar';
-  
-  const participantsHeader = document.createElement('h2');
-  participantsHeader.textContent = 'Participants';
-  sidebarContainer.appendChild(participantsHeader);
-  
-  const participantsList = document.createElement('div');
-  participantsList.id = 'participants-list';
-  participantsList.className = 'participants-list';
-  sidebarContainer.appendChild(participantsList);
-  
-  appContainer.appendChild(sidebarContainer);
-  
-  // Get current user ID from auth
-  const userId = auth?.user?.id || 'anonymous';
-  
-  // Log important information for multiplayer
-  logDebug(`Starting ${gameId} for user ${userId} in instance ${discordSdk.instanceId}`);
-  
-  // Initialize the appropriate game
-  if (gameId === 'canvas') {
-    try {
-      // Create the GameCanvas instance
-      currentGame = new CanvasGameFrontend(
-        gameContainer, 
-        discordSdk.instanceId, 
-        userId, 
-        () => showLobby() // Callback to return to lobby
-      );
+      // Get user data
+      this.userId = auth.user.id;
+      this.username = auth.user.username;
+      console.log('Discord user:', auth.user);
+      
+      // Connect to WebSocket after Discord initialization
+      this.connectWebSocket();
     } catch (error) {
-      logDebug(`Error initializing Canvas game: ${error.message}`, 'error');
-      showGameError(gameContainer, error, gameId);
+      console.error('Error initializing Discord:', error);
+      this.updateStatus('disconnected', 'Discord initialization failed');
     }
-  } else if (gameId === 'dotgame') {
+  }
+  
+  connectWebSocket() {
+    this.updateStatus('connecting', 'Connecting to server...');
+    
+    // Create WebSocket connection
+    this.socket = new WebSocket(getWebSocketUrl());
+    
+    // WebSocket event handlers
+    this.socket.onopen = () => this.handleSocketOpen();
+    this.socket.onmessage = (event) => this.handleSocketMessage(event);
+    this.socket.onclose = () => this.handleSocketClose();
+    this.socket.onerror = (error) => this.handleSocketError(error);
+  }
+  
+  handleSocketOpen() {
+    console.log('WebSocket connected');
+    this.connected = true;
+    this.updateStatus('connected', 'Connected');
+    
+    // Send join message
+    this.socket.send(JSON.stringify({
+      type: 'join',
+      userId: this.userId,
+      username: this.username,
+      instanceId: this.params.instanceId,
+      activityId: this.params.activityId
+    }));
+  }
+  
+  handleSocketMessage(event) {
     try {
-      // Initialize the dot game using our new DotGame class
-      currentGame = new DotGameFrontend(
-        gameContainer,
-        discordSdk.instanceId,
-        userId,
-        () => showLobby() // Callback to return to lobby
-      );
+      const data = JSON.parse(event.data);
+      console.log('WebSocket message received:', data);
+      
+      switch (data.type) {
+        case 'message':
+          this.displayMessage(data.userId, data.message);
+          break;
+        case 'user_joined':
+          this.displaySystemMessage(`User ${data.userId} joined the chat`);
+          break;
+        case 'user_left':
+          this.displaySystemMessage(`User ${data.userId} left the chat`);
+          break;
+        case 'error':
+          console.error('Server error:', data.message);
+          this.displaySystemMessage(`Error: ${data.message}`);
+          break;
+      }
     } catch (error) {
-      logDebug(`Error initializing Dot game: ${error.message}`, 'error');
-      showGameError(gameContainer, error, gameId);
+      console.error('Error processing message:', error);
     }
-  } else {
-    // Handle unknown game type
-    showGameError(gameContainer, new Error(`Unknown game type: ${gameId}`), gameId);
   }
   
-  // Render participants in the sidebar
-  renderParticipants(participants);
-}
-
-// Helper function to show game errors
-function showGameError(container, error, gameId) {
-  container.innerHTML = `
-    <div class="error-message">
-      <h3>Error starting ${gameId}</h3>
-      <p>${error.message}</p>
-      <div class="error-details">
-        <p>Please check the following:</p>
-        <ul>
-          <li>Your network connection is working</li>
-          <li>The WebSocket server is running at ${getWebSocketUrl()}</li>
-          <li>You have permissions to access this activity</li>
-        </ul>
-      </div>
-    </div>
-  `;
-  
-  // Add a button to return to lobby
-  const backButton = document.createElement('button');
-  backButton.textContent = 'Back to Lobby';
-  backButton.className = 'canvas-button';
-  backButton.addEventListener('click', showLobby);
-  container.appendChild(backButton);
-  
-  // Add a retry button
-  const retryButton = document.createElement('button');
-  retryButton.textContent = 'Retry';
-  retryButton.className = 'canvas-button';
-  retryButton.addEventListener('click', () => startGame(gameId));
-  container.appendChild(retryButton);
-}
-
-// Initialize WebSocket connection in both local and Discord modes
-async function initializeWebSocket() {
-  try {
-    logDebug('Initializing WebSocket connection...', 'info');
+  handleSocketClose() {
+    console.log('WebSocket disconnected');
+    this.connected = false;
+    this.updateStatus('disconnected', 'Disconnected');
     
-    // Log environment for troubleshooting
-    const envDetails = {
-      isInDiscord: isInDiscordEnvironment(),
-      clientId: discordSdk?.instanceId,
-      protocol: window.location.protocol,
-      host: window.location.host,
-      userAgent: navigator.userAgent,
-      wsUrl: getWebSocketUrl()
-    };
-    logDebug(`Environment details: ${JSON.stringify(envDetails)}`, 'info');
+    // Try to reconnect after a delay
+    setTimeout(() => {
+      if (!this.connected) {
+        this.connectWebSocket();
+      }
+    }, 5000);
+  }
+  
+  handleSocketError(error) {
+    console.error('WebSocket error:', error);
+    this.updateStatus('disconnected', 'Connection error');
+  }
+  
+  handleSubmit(event) {
+    event.preventDefault();
     
-    const ws = getWebSocketInstance();
-    if (ws) {
-      logDebug('WebSocket initialized successfully');
-    } else {
-      logDebug('Failed to initialize WebSocket - instance is null', 'error');
-    }
-  } catch (error) {
-    logDebug(`Failed to initialize WebSocket: ${error.message}`, 'error');
-    logDebug(`Error stack: ${error.stack || 'No stack trace available'}`, 'error');
+    const message = this.messageInput.value.trim();
+    if (!message || !this.connected) return;
+    
+    // Send message to server
+    this.socket.send(JSON.stringify({
+      type: 'message',
+      message: message
+    }));
+    
+    // Display own message immediately
+    this.displayMessage(this.userId, message, true);
+    
+    // Clear input
+    this.messageInput.value = '';
+  }
+  
+  displayMessage(userId, message, isMe = false) {
+    const messageDiv = document.createElement('div');
+    messageDiv.className = `message ${isMe ? 'own-message' : ''}`;
+    
+    const authorDiv = document.createElement('div');
+    authorDiv.className = 'author';
+    authorDiv.textContent = isMe ? 'You' : `User-${userId.substring(0, 6)}`;
+    
+    const contentDiv = document.createElement('div');
+    contentDiv.className = 'content';
+    contentDiv.textContent = message;
+    
+    messageDiv.appendChild(authorDiv);
+    messageDiv.appendChild(contentDiv);
+    
+    this.messagesEl.appendChild(messageDiv);
+    this.scrollToBottom();
+  }
+  
+  displaySystemMessage(message) {
+    const messageDiv = document.createElement('div');
+    messageDiv.className = 'message system-message';
+    messageDiv.textContent = message;
+    
+    this.messagesEl.appendChild(messageDiv);
+    this.scrollToBottom();
+  }
+  
+  updateStatus(status, message) {
+    this.statusEl.className = status;
+    this.statusEl.textContent = message;
+  }
+  
+  scrollToBottom() {
+    this.messagesEl.scrollTop = this.messagesEl.scrollHeight;
   }
 }
+
+// Initialize the application once the DOM is loaded
+document.addEventListener('DOMContentLoaded', () => {
+  new ChatApp();
+});

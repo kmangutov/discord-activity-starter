@@ -1,13 +1,14 @@
 {
-  "name": "getting-starter-activity-server",
+  "name": "discord-activity-server",
   "version": "1.0.0",
-  "description": "",
+  "description": "Simple Discord Activity server with WebSockets",
   "main": "server.js",
   "type": "module",
   "scripts": {
-    "dev": "npm start"
+    "start": "node server.js",
+    "dev": "node server.js"
   },
-  "keywords": [],
+  "keywords": ["discord", "activity", "websocket"],
   "author": "",
   "license": "ISC",
   "dependencies": {
