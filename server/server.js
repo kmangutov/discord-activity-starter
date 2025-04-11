@@ -9,7 +9,8 @@ import fetch from "node-fetch";
 import path from 'path';
 import { fileURLToPath } from 'url';
 import http from 'http';
-import { WebSocketServer, WebSocket } from 'ws';
+import { WebSocket } from 'ws';
+import { initWebSocketServer } from './websocket/index.js';
 
 // Config
 dotenv.config({ path: "../.env" });
@@ -30,118 +31,8 @@ app.use(express.json());
 // Serve static files from Vite build
 app.use(express.static(path.join(__dirname, '../client/dist')));
 
-// Create a WebSocket server
-const wss = new WebSocketServer({ server });
-
-// Track all connected clients
-const clients = new Map();
-
-// Log WebSocket server events
-wss.on('listening', () => {
-  console.log('WebSocket server is listening for connections');
-});
-
-wss.on('error', (error) => {
-  console.error('WebSocket server error:', error);
-});
-
-// WebSocket connection handler
-wss.on('connection', (ws, req) => {
-  console.log('WebSocket client connected from:', req.socket.remoteAddress);
-  
-  // Add a ping interval to keep connections alive
-  const pingInterval = setInterval(() => {
-    if (ws.readyState === WebSocket.OPEN) {
-      ws.ping();
-    }
-  }, 30000); // Send ping every 30 seconds
-  
-  ws.on('message', (message) => {
-    try {
-      console.log('WebSocket message received:', message.toString().substring(0, 200));
-      const data = JSON.parse(message);
-      
-      // Handle initial connection message with userId
-      if (data.type === 'join') {
-        const { userId, instanceId, activityId } = data;
-        
-        if (!userId) {
-          ws.send(JSON.stringify({ type: 'error', message: 'Missing userId' }));
-          return;
-        }
-        
-        // Store user info on the socket
-        ws.userId = userId;
-        ws.instanceId = instanceId;
-        if (activityId) {
-          ws.activityId = activityId;
-          console.log(`User ${userId} joined Discord activity ${activityId}`);
-        } else {
-          console.log(`User ${userId} joined local session ${instanceId}`);
-        }
-        
-        // Add to clients map
-        clients.set(ws, { userId, instanceId });
-        
-        // Notify all clients in the same instance about the new user
-        broadcastToInstance(instanceId, {
-          type: 'user_joined',
-          userId: userId
-        }, ws);
-      } 
-      // Handle message broadcasting
-      else if (data.type === 'message' && ws.instanceId && data.message) {
-        // Broadcast the message to all clients in the same instance
-        broadcastToInstance(ws.instanceId, {
-          type: 'message',
-          userId: ws.userId,
-          message: data.message
-        });
-      }
-    } catch (error) {
-      console.error('Error processing WebSocket message:', error);
-      ws.send(JSON.stringify({ type: 'error', message: 'Invalid message format or processing error' }));
-    }
-  });
-  
-  // Handle WebSocket-specific errors
-  ws.on('error', (error) => {
-    console.error('WebSocket client error:', error);
-    clearInterval(pingInterval);
-    clients.delete(ws);
-  });
-  
-  // Handle disconnection
-  ws.on('close', () => {
-    console.log(`WebSocket client disconnected - User: ${ws.userId || 'Unknown'}`);
-    
-    // Clear the ping interval
-    clearInterval(pingInterval);
-    
-    // Remove from clients map
-    const clientInfo = clients.get(ws);
-    clients.delete(ws);
-    
-    // Notify others about the disconnect
-    if (clientInfo) {
-      broadcastToInstance(clientInfo.instanceId, {
-        type: 'user_left',
-        userId: clientInfo.userId
-      });
-    }
-  });
-});
-
-// Helper function to broadcast to all clients in an instance
-function broadcastToInstance(instanceId, data, excludeSocket = null) {
-  clients.forEach((clientInfo, client) => {
-    if (client !== excludeSocket && 
-        client.readyState === WebSocket.OPEN && 
-        clientInfo.instanceId === instanceId) {
-      client.send(JSON.stringify(data));
-    }
-  });
-}
+// Initialize WebSocket server with our HTTP server
+const wss = initWebSocketServer(server);
 
 // API endpoint to exchange Discord auth code for token
 app.post("/api/token", async (req, res) => {
