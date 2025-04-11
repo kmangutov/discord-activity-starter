@@ -2,25 +2,41 @@
  * Simple WebSocket connection manager
  */
 
+// Define types for user info
+interface UserInfo {
+  userId: string;
+  username: string;
+  instanceId?: string;
+  activityId?: string;
+}
+
+// Define types for event handlers
+type MessageHandler = (userId: string, message: string) => void;
+type UserJoinedHandler = (userId: string) => void;
+type UserLeftHandler = (userId: string) => void;
+type ConnectHandler = () => void;
+type DisconnectHandler = () => void;
+type ErrorHandler = (message: string) => void;
+
 // WebSocket instance
-let socket = null;
-let connected = false;
-let userInfo = null;
-let reconnectTimer = null;
+let socket: WebSocket | null = null;
+let connected: boolean = false;
+let userInfo: UserInfo | null = null;
+let reconnectTimer: number | null = null;
 
 // Event handlers
-let onMessageHandlers = [];
-let onUserJoinedHandlers = [];
-let onUserLeftHandlers = [];
-let onConnectHandlers = [];
-let onDisconnectHandlers = [];
-let onErrorHandlers = [];
+let onMessageHandlers: MessageHandler[] = [];
+let onUserJoinedHandlers: UserJoinedHandler[] = [];
+let onUserLeftHandlers: UserLeftHandler[] = [];
+let onConnectHandlers: ConnectHandler[] = [];
+let onDisconnectHandlers: DisconnectHandler[] = [];
+let onErrorHandlers: ErrorHandler[] = [];
 
 /**
  * Get the WebSocket URL based on environment
- * @returns {string} WebSocket URL
+ * @returns WebSocket URL
  */
-const getWebSocketUrl = () => {
+const getWebSocketUrl = (): string => {
   const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
   const host = import.meta.env.VITE_WS_HOST || window.location.host;
   return `${protocol}//${host}`;
@@ -28,9 +44,9 @@ const getWebSocketUrl = () => {
 
 /**
  * Initialize WebSocket connection
- * @param {Object} user - User information to send on connection
+ * @param user - User information to send on connection
  */
-export function connect(user) {
+export function connect(user: UserInfo): void {
   // Store user info for reconnect
   userInfo = user;
   
@@ -57,7 +73,7 @@ export function connect(user) {
     onConnectHandlers.forEach(handler => handler());
   };
   
-  socket.onmessage = (event) => {
+  socket.onmessage = (event: MessageEvent) => {
     try {
       const data = JSON.parse(event.data);
       
@@ -90,14 +106,16 @@ export function connect(user) {
     
     // Reconnect after delay
     if (userInfo) {
-      reconnectTimer = setTimeout(() => {
+      reconnectTimer = window.setTimeout(() => {
         console.log('Attempting to reconnect...');
-        connect(userInfo);
+        if (userInfo) {
+          connect(userInfo);
+        }
       }, 5000);
     }
   };
   
-  socket.onerror = (error) => {
+  socket.onerror = (error: Event) => {
     console.error('WebSocket error:', error);
     onErrorHandlers.forEach(handler => handler('Connection error'));
   };
@@ -106,7 +124,7 @@ export function connect(user) {
 /**
  * Disconnect WebSocket
  */
-export function disconnect() {
+export function disconnect(): void {
   if (socket && (socket.readyState === WebSocket.OPEN || socket.readyState === WebSocket.CONNECTING)) {
     socket.close();
   }
@@ -122,38 +140,44 @@ export function disconnect() {
 
 /**
  * Register event callback
- * @param {string} event - Event name
- * @param {Function} callback - Callback function
+ * @param event - Event name
+ * @param callback - Callback function
  */
-export function on(event, callback) {
+export function on(
+  event: 'message' | 'userJoined' | 'userLeft' | 'connect' | 'disconnect' | 'error', 
+  callback: MessageHandler | UserJoinedHandler | UserLeftHandler | ConnectHandler | DisconnectHandler | ErrorHandler
+): void {
   switch (event) {
     case 'message':
-      onMessageHandlers.push(callback);
+      onMessageHandlers.push(callback as MessageHandler);
       break;
     case 'userJoined':
-      onUserJoinedHandlers.push(callback);
+      onUserJoinedHandlers.push(callback as UserJoinedHandler);
       break;
     case 'userLeft':
-      onUserLeftHandlers.push(callback);
+      onUserLeftHandlers.push(callback as UserLeftHandler);
       break;
     case 'connect':
-      onConnectHandlers.push(callback);
+      onConnectHandlers.push(callback as ConnectHandler);
       break;
     case 'disconnect':
-      onDisconnectHandlers.push(callback);
+      onDisconnectHandlers.push(callback as DisconnectHandler);
       break;
     case 'error':
-      onErrorHandlers.push(callback);
+      onErrorHandlers.push(callback as ErrorHandler);
       break;
   }
 }
 
 /**
  * Remove event callback
- * @param {string} event - Event name
- * @param {Function} callback - Callback function
+ * @param event - Event name
+ * @param callback - Callback function
  */
-export function off(event, callback) {
+export function off(
+  event: 'message' | 'userJoined' | 'userLeft' | 'connect' | 'disconnect' | 'error', 
+  callback: MessageHandler | UserJoinedHandler | UserLeftHandler | ConnectHandler | DisconnectHandler | ErrorHandler
+): void {
   switch (event) {
     case 'message':
       onMessageHandlers = onMessageHandlers.filter(handler => handler !== callback);
@@ -178,11 +202,11 @@ export function off(event, callback) {
 
 /**
  * Send message to server
- * @param {string} type - Message type
- * @param {Object} data - Message data
- * @returns {boolean} Whether message was sent
+ * @param type - Message type
+ * @param data - Message data
+ * @returns Whether message was sent
  */
-export function send(type, data = {}) {
+export function send(type: string, data: Record<string, any> = {}): boolean {
   if (!socket || socket.readyState !== WebSocket.OPEN) {
     return false;
   }
@@ -197,17 +221,17 @@ export function send(type, data = {}) {
 
 /**
  * Send chat message
- * @param {string} message - Message text
- * @returns {boolean} Whether message was sent
+ * @param message - Message text
+ * @returns Whether message was sent
  */
-export function sendMessage(message) {
+export function sendMessage(message: string): boolean {
   return send('message', { message });
 }
 
 /**
  * Check if connected to WebSocket
- * @returns {boolean} Connection status
+ * @returns Connection status
  */
-export function isConnected() {
+export function isConnected(): boolean {
   return connected;
 } 

@@ -1,14 +1,63 @@
 import { WebSocketServer, WebSocket } from 'ws';
+import { IncomingMessage } from 'http';
+import { Server } from 'http';
+
+// Define types for client info
+interface ClientInfo {
+  userId: string;
+  instanceId: string;
+}
+
+// Define types for WebSocket messages
+interface BaseMessage {
+  type: string;
+}
+
+interface JoinMessage extends BaseMessage {
+  type: 'join';
+  userId: string;
+  instanceId: string;
+  activityId?: string;
+}
+
+interface ChatMessage extends BaseMessage {
+  type: 'message';
+  message: string;
+}
+
+interface UserJoinedMessage extends BaseMessage {
+  type: 'user_joined';
+  userId: string;
+}
+
+interface UserLeftMessage extends BaseMessage {
+  type: 'user_left';
+  userId: string;
+}
+
+interface ErrorMessage extends BaseMessage {
+  type: 'error';
+  message: string;
+}
+
+type WebSocketMessage = JoinMessage | ChatMessage | UserJoinedMessage | UserLeftMessage | ErrorMessage;
+
+// Extend WebSocket to include user properties
+interface ExtendedWebSocket extends WebSocket {
+  userId?: string;
+  instanceId?: string;
+  activityId?: string;
+}
 
 // Track all connected clients
-const clients = new Map();
+const clients = new Map<ExtendedWebSocket, ClientInfo>();
 
 /**
  * Initialize WebSocket server
- * @param {Object} server - HTTP server instance
- * @returns {WebSocketServer} - WebSocket server instance
+ * @param server - HTTP server instance
+ * @returns WebSocket server instance
  */
-export function initWebSocketServer(server) {
+export function initWebSocketServer(server: Server): WebSocketServer {
   const wss = new WebSocketServer({ server });
   
   // Log WebSocket server events
@@ -16,7 +65,7 @@ export function initWebSocketServer(server) {
     console.log('WebSocket server is listening for connections');
   });
 
-  wss.on('error', (error) => {
+  wss.on('error', (error: Error) => {
     console.error('WebSocket server error:', error);
   });
 
@@ -28,10 +77,10 @@ export function initWebSocketServer(server) {
 
 /**
  * Handle new WebSocket connection
- * @param {WebSocket} ws - WebSocket connection
- * @param {Object} req - HTTP request
+ * @param ws - WebSocket connection
+ * @param req - HTTP request
  */
-function handleConnection(ws, req) {
+function handleConnection(ws: ExtendedWebSocket, req: IncomingMessage): void {
   console.log('WebSocket client connected from:', req.socket.remoteAddress);
   
   // Add a ping interval to keep connections alive
@@ -41,10 +90,10 @@ function handleConnection(ws, req) {
     }
   }, 30000);
   
-  ws.on('message', (message) => handleMessage(ws, message));
+  ws.on('message', (message: Buffer) => handleMessage(ws, message));
   
   // Handle WebSocket-specific errors
-  ws.on('error', (error) => {
+  ws.on('error', (error: Error) => {
     console.error('WebSocket client error:', error);
     clearInterval(pingInterval);
     clients.delete(ws);
@@ -70,13 +119,13 @@ function handleConnection(ws, req) {
 
 /**
  * Handle incoming WebSocket message
- * @param {WebSocket} ws - WebSocket connection
- * @param {string|Buffer} message - Incoming message
+ * @param ws - WebSocket connection
+ * @param message - Incoming message
  */
-function handleMessage(ws, message) {
+function handleMessage(ws: ExtendedWebSocket, message: Buffer): void {
   try {
     console.log('WebSocket message received:', message.toString().substring(0, 200));
-    const data = JSON.parse(message);
+    const data = JSON.parse(message.toString()) as WebSocketMessage;
     
     // Handle initial connection message with userId
     if (data.type === 'join') {
@@ -107,11 +156,11 @@ function handleMessage(ws, message) {
       }, ws);
     } 
     // Handle message broadcasting
-    else if (data.type === 'message' && ws.instanceId && data.message) {
+    else if (data.type === 'message' && ws.instanceId && 'message' in data) {
       // Broadcast the message to all clients in the same instance
       broadcastToInstance(ws.instanceId, {
         type: 'message',
-        userId: ws.userId,
+        userId: ws.userId || '',
         message: data.message
       });
     }
@@ -123,11 +172,11 @@ function handleMessage(ws, message) {
 
 /**
  * Broadcast a message to all clients in a specific instance
- * @param {string} instanceId - Instance ID to broadcast to
- * @param {Object} data - Data to broadcast
- * @param {WebSocket} excludeSocket - Optional socket to exclude from broadcast
+ * @param instanceId - Instance ID to broadcast to
+ * @param data - Data to broadcast
+ * @param excludeSocket - Optional socket to exclude from broadcast
  */
-export function broadcastToInstance(instanceId, data, excludeSocket = null) {
+export function broadcastToInstance(instanceId: string, data: object, excludeSocket: ExtendedWebSocket | null = null): void {
   clients.forEach((clientInfo, client) => {
     if (client !== excludeSocket && 
         client.readyState === WebSocket.OPEN && 
@@ -139,19 +188,29 @@ export function broadcastToInstance(instanceId, data, excludeSocket = null) {
 
 /**
  * Get all active WebSocket connections
- * @returns {Map} The clients map
+ * @returns The clients map
  */
-export function getActiveConnections() {
+export function getActiveConnections(): Map<ExtendedWebSocket, ClientInfo> {
   return clients;
 }
 
 /**
  * Get all connections for a specific instance
- * @param {string} instanceId - Instance ID
- * @returns {Array} Array of WebSocket connections
+ * @param instanceId - Instance ID
+ * @returns Array of WebSocket connections
  */
-export function getInstanceConnections(instanceId) {
-  const instanceConnections = [];
+export function getInstanceConnections(instanceId: string): Array<{
+  socket: ExtendedWebSocket,
+  userId: string,
+  instanceId: string,
+  activityId?: string
+}> {
+  const instanceConnections: Array<{
+    socket: ExtendedWebSocket,
+    userId: string,
+    instanceId: string,
+    activityId?: string
+  }> = [];
   
   clients.forEach((clientInfo, client) => {
     if (clientInfo.instanceId === instanceId) {
@@ -170,7 +229,7 @@ export function getInstanceConnections(instanceId) {
 /**
  * Disconnect all clients
  */
-export function closeAllConnections() {
+export function closeAllConnections(): void {
   clients.forEach((clientInfo, client) => {
     try {
       client.close();
@@ -180,4 +239,4 @@ export function closeAllConnections() {
   });
   
   clients.clear();
-}
+} 

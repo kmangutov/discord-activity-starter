@@ -4,18 +4,18 @@
 
 /**
  * Generate a random user ID for local testing
- * @returns {string} Random user ID
+ * @returns Random user ID
  */
-export function generateUserId() {
+export function generateUserId(): string {
   return Math.random().toString(36).substring(2, 10);
 }
 
 /**
  * Store value in session storage
- * @param {string} key - Storage key
- * @param {*} value - Value to store
+ * @param key - Storage key
+ * @param value - Value to store
  */
-export function setSessionItem(key, value) {
+export function setSessionItem<T>(key: string, value: T): void {
   try {
     sessionStorage.setItem(key, JSON.stringify(value));
   } catch (error) {
@@ -25,11 +25,11 @@ export function setSessionItem(key, value) {
 
 /**
  * Get value from session storage
- * @param {string} key - Storage key
- * @param {*} defaultValue - Default value if key doesn't exist
- * @returns {*} Stored value or default
+ * @param key - Storage key
+ * @param defaultValue - Default value if key doesn't exist
+ * @returns Stored value or default
  */
-export function getSessionItem(key, defaultValue = null) {
+export function getSessionItem<T>(key: string, defaultValue: T | null = null): T | null {
   try {
     const item = sessionStorage.getItem(key);
     return item ? JSON.parse(item) : defaultValue;
@@ -41,10 +41,10 @@ export function getSessionItem(key, defaultValue = null) {
 
 /**
  * Get stored user ID or generate a new one
- * @returns {string} User ID
+ * @returns User ID
  */
-export function getOrCreateLocalUserId() {
-  let userId = getSessionItem('local_user_id');
+export function getOrCreateLocalUserId(): string {
+  let userId = getSessionItem<string>('local_user_id');
   
   if (!userId) {
     userId = generateUserId();

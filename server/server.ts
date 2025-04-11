@@ -25,18 +25,36 @@ const server = http.createServer(app);
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
+// Resolve client dist path - go up from server/dist or server directory to the root
+const clientDistPath = path.resolve(__dirname, '..', '..', 'client', 'dist');
+
 // Allow express to parse JSON bodies
 app.use(express.json());
 
 // Serve static files from Vite build
-app.use(express.static(path.join(__dirname, '../client/dist')));
+app.use(express.static(clientDistPath));
 
 // Initialize WebSocket server with our HTTP server
 const wss = initWebSocketServer(server);
 
+// Define types for the token request
+interface TokenRequest {
+  code: string;
+}
+
+interface TokenResponse {
+  access_token: string;
+}
+
+interface TokenError {
+  error: string;
+}
+
 // API endpoint to exchange Discord auth code for token
-app.post("/api/token", async (req, res) => {
+(app as any).post("/api/token", async (req, res) => {
   try {
+    const { code } = req.body as TokenRequest;
+
     // Exchange the code for an access_token
     const response = await fetch(`https://discord.com/api/oauth2/token`, {
       method: "POST",
@@ -44,36 +62,42 @@ app.post("/api/token", async (req, res) => {
         "Content-Type": "application/x-www-form-urlencoded",
       },
       body: new URLSearchParams({
-        client_id: process.env.VITE_DISCORD_CLIENT_ID,
-        client_secret: process.env.DISCORD_CLIENT_SECRET,
+        client_id: process.env.VITE_DISCORD_CLIENT_ID || '',
+        client_secret: process.env.DISCORD_CLIENT_SECRET || '',
         grant_type: "authorization_code",
-        code: req.body.code,
+        code,
       }),
     });
 
-    const data = await response.json();
+    const data = await response.json() as any;
     
     if (!response.ok) {
       console.error("Discord token exchange error:", data);
-      return res.status(response.status).json({ error: data.error_description || "Failed to exchange token" });
+      return res.status(response.status).json({ 
+        error: data.error_description || "Failed to exchange token" 
+      } as TokenError);
     }
 
     // Return the access_token to our client
-    res.json({ access_token: data.access_token });
+    res.json({ 
+      access_token: data.access_token 
+    } as TokenResponse);
   } catch (error) {
     console.error("Error in token exchange:", error);
-    res.status(500).json({ error: "Internal server error" });
+    res.status(500).json({ 
+      error: "Internal server error" 
+    } as TokenError);
   }
 });
 
 // Fallback to index.html for SPA routing
-app.get('*', (req, res) => {
+(app as any).get('*', (req, res) => {
   // Don't redirect API requests
   if (req.path.startsWith('/api')) return;
-  res.sendFile(path.join(__dirname, '../client/dist/index.html'));
+  res.sendFile(path.join(clientDistPath, 'index.html'));
 });
 
 // Use the HTTP server instead of the Express app
 server.listen(port, () => {
   console.log(`Server listening on port ${port}`);
-});
+}); 

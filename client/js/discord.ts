@@ -3,14 +3,36 @@
  */
 import { DiscordSDK } from '@discord/embedded-app-sdk';
 
-let discordSDK = null;
+// Define types for Discord user
+interface DiscordUser {
+  id: string;
+  username: string;
+  [key: string]: any; // For other user properties
+}
+
+// Define authentication result type
+interface AuthResult {
+  userId: string;
+  username: string;
+  user: DiscordUser;
+}
+
+// Define URL params type
+interface UrlParams {
+  instanceId: string;
+  activityId: string | null;
+  guildId: string | null;
+  channelId: string | null;
+}
+
+let discordSDK: DiscordSDK | null = null;
 
 /**
  * Initialize Discord SDK
- * @param {string} clientId - Discord client ID
- * @returns {Promise<DiscordSDK>} Discord SDK instance
+ * @param clientId - Discord client ID
+ * @returns Discord SDK instance
  */
-export async function initializeSDK(clientId) {
+export async function initializeSDK(clientId: string): Promise<DiscordSDK> {
   // Check if we've already initialized
   if (discordSDK) {
     return discordSDK;
@@ -25,10 +47,10 @@ export async function initializeSDK(clientId) {
 
 /**
  * Authenticate with Discord
- * @param {string} clientId - Discord client ID
- * @returns {Promise<Object>} User data
+ * @param clientId - Discord client ID
+ * @returns User data
  */
-export async function authenticate(clientId) {
+export async function authenticate(clientId: string): Promise<AuthResult> {
   try {
     // Initialize SDK
     const sdk = await initializeSDK(clientId);
@@ -71,17 +93,17 @@ export async function authenticate(clientId) {
 
 /**
  * Check if running in Discord activity
- * @returns {boolean} True if running in Discord activity
+ * @returns True if running in Discord activity
  */
-export function isDiscordActivity() {
+export function isDiscordActivity(): boolean {
   return window.location.search.includes('activityId');
 }
 
 /**
  * Get parameters from URL
- * @returns {Object} URL parameters
+ * @returns URL parameters
  */
-export function getUrlParams() {
+export function getUrlParams(): UrlParams {
   const params = new URLSearchParams(window.location.search);
   return {
     instanceId: params.get('instanceId') || "local-instance",
@@ -93,8 +115,8 @@ export function getUrlParams() {
 
 /**
  * Get Discord SDK instance
- * @returns {DiscordSDK|null} Discord SDK instance
+ * @returns Discord SDK instance
  */
-export function getSDK() {
+export function getSDK(): DiscordSDK | null {
   return discordSDK;
 } 

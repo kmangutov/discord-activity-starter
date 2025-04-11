@@ -4,11 +4,14 @@
   "description": "Discord Activity with WebSocket communication",
   "type": "module",
   "scripts": {
-    "start": "node server/server.js",
-    "build": "cd server && npm install && cd ../client && npm install && npm run build",
-    "dev": "concurrently \"cd server && npm run dev\" \"cd client && npm run dev\""
+    "start": "node server/dist/server.js",
+    "build": "cd server && npm run build && cd ../client && npm run build",
+    "dev": "concurrently \"cd server && npm run dev\" \"cd client && npm run dev\"",
+    "build:server": "cd server && npm run build",
+    "build:client": "cd client && npm run build",
+    "install:deps": "npm install && cd server && npm install && cd ../client && npm install"
   },
   "dependencies": {
-    "concurrently": "^8.0.0"
+    "concurrently": "^8.2.2"
   }
-} 
+}

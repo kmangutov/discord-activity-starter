@@ -2,21 +2,32 @@
  * UI handler for chat interface
  */
 
+// Define a type for connection status
+type ConnectionStatus = 'connected' | 'disconnected' | 'connecting';
+
+// Define a type for the return value of initialize
+interface UIElements {
+  statusEl: HTMLElement | null;
+  messagesEl: HTMLElement | null;
+  messageForm: HTMLFormElement | null;
+  messageInput: HTMLInputElement | null;
+}
+
 // DOM elements
-let statusEl;
-let messagesEl;
-let messageForm;
-let messageInput;
+let statusEl: HTMLElement | null;
+let messagesEl: HTMLElement | null;
+let messageForm: HTMLFormElement | null;
+let messageInput: HTMLInputElement | null;
 
 /**
  * Initialize UI elements
- * @returns {Object} UI elements
+ * @returns UI elements
  */
-export function initialize() {
+export function initialize(): UIElements {
   statusEl = document.getElementById('status');
   messagesEl = document.getElementById('messages');
-  messageForm = document.getElementById('message-form');
-  messageInput = document.getElementById('message-input');
+  messageForm = document.getElementById('message-form') as HTMLFormElement | null;
+  messageInput = document.getElementById('message-input') as HTMLInputElement | null;
   
   return {
     statusEl,
@@ -28,11 +39,11 @@ export function initialize() {
 
 /**
  * Display chat message
- * @param {string} userId - User ID
- * @param {string} message - Message text
- * @param {boolean} isMe - Whether the message is from the current user
+ * @param userId - User ID
+ * @param message - Message text
+ * @param isMe - Whether the message is from the current user
  */
-export function displayMessage(userId, message, isMe = false) {
+export function displayMessage(userId: string, message: string, isMe: boolean = false): void {
   if (!messagesEl) return;
   
   const messageDiv = document.createElement('div');
@@ -55,9 +66,9 @@ export function displayMessage(userId, message, isMe = false) {
 
 /**
  * Display system message
- * @param {string} message - Message text
+ * @param message - Message text
  */
-export function displaySystemMessage(message) {
+export function displaySystemMessage(message: string): void {
   if (!messagesEl) return;
   
   const messageDiv = document.createElement('div');
@@ -70,10 +81,10 @@ export function displaySystemMessage(message) {
 
 /**
  * Update connection status
- * @param {string} status - Status type (connected, disconnected, connecting)
- * @param {string} message - Status message
+ * @param status - Status type (connected, disconnected, connecting)
+ * @param message - Status message
  */
-export function updateStatus(status, message) {
+export function updateStatus(status: ConnectionStatus, message: string): void {
   if (!statusEl) return;
   
   statusEl.className = status;
@@ -83,7 +94,7 @@ export function updateStatus(status, message) {
 /**
  * Clear message input
  */
-export function clearInput() {
+export function clearInput(): void {
   if (messageInput) {
     messageInput.value = '';
   }
@@ -92,7 +103,7 @@ export function clearInput() {
 /**
  * Scroll messages to bottom
  */
-export function scrollToBottom() {
+export function scrollToBottom(): void {
   if (messagesEl) {
     messagesEl.scrollTop = messagesEl.scrollHeight;
   }
@@ -100,16 +111,18 @@ export function scrollToBottom() {
 
 /**
  * Add submit handler to message form
- * @param {Function} callback - Submit callback function
+ * @param callback - Submit callback function
  */
-export function onSubmit(callback) {
-  if (messageForm) {
+export function onSubmit(callback: (message: string) => void): void {
+  if (messageForm && messageInput) {
     messageForm.addEventListener('submit', (event) => {
       event.preventDefault();
       
-      const message = messageInput.value.trim();
-      if (message) {
-        callback(message);
+      if (messageInput) {
+        const message = messageInput.value.trim();
+        if (message) {
+          callback(message);
+        }
       }
     });
   }

@@ -1,17 +1,25 @@
-import * as discord from './js/discord.js';
-import * as websocket from './js/websocket.js';
-import * as ui from './js/ui.js';
-import { getOrCreateLocalUserId } from './js/utils.js';
+import * as discord from './js/discord.ts';
+import * as websocket from './js/websocket.ts';
+import * as ui from './js/ui.ts';
+import { getOrCreateLocalUserId } from './js/utils.ts';
+
+// Define types
+interface AppParams {
+  instanceId: string;
+  activityId: string | null;
+  guildId: string | null;
+  channelId: string | null;
+}
 
 // Application state
-let userId = null;
-let username = null;
-let params = null;
+let userId: string | null = null;
+let username: string | null = null;
+let params: AppParams | null = null;
 
 /**
  * Initialize the application
  */
-async function initApp() {
+async function initApp(): Promise<void> {
   // Initialize UI
   ui.initialize();
   
@@ -35,12 +43,12 @@ async function initApp() {
 /**
  * Initialize Discord mode
  */
-async function initDiscord() {
+async function initDiscord(): Promise<void> {
   ui.updateStatus('connecting', 'Initializing Discord...');
   
   try {
     // Authenticate with Discord
-    const user = await discord.authenticate(import.meta.env.VITE_DISCORD_CLIENT_ID);
+    const user = await discord.authenticate(import.meta.env.VITE_DISCORD_CLIENT_ID || '');
     
     // Store user info
     userId = user.userId;
@@ -57,46 +65,50 @@ async function initDiscord() {
 /**
  * Initialize local mode
  */
-function initLocal() {
+function initLocal(): void {
   // Generate or get local user ID
   userId = getOrCreateLocalUserId();
-  username = `User-${userId.substring(0, 6)}`;
-  
-  // Connect to WebSocket
-  connectWebSocket();
+  if (userId) {
+    username = `User-${userId.substring(0, 6)}`;
+    
+    // Connect to WebSocket
+    connectWebSocket();
+  }
 }
 
 /**
  * Connect to WebSocket
  */
-function connectWebSocket() {
+function connectWebSocket(): void {
   ui.updateStatus('connecting', 'Connecting to server...');
   
-  // Connect with user info
-  websocket.connect({
-    userId,
-    username,
-    instanceId: params.instanceId,
-    activityId: params.activityId
-  });
+  if (userId && username && params) {
+    // Connect with user info
+    websocket.connect({
+      userId,
+      username,
+      instanceId: params.instanceId,
+      activityId: params.activityId || undefined
+    });
+  }
 }
 
 /**
  * Set up WebSocket event handlers
  */
-function setupWebSocketHandlers() {
+function setupWebSocketHandlers(): void {
   // Message handler
-  websocket.on('message', (senderId, message) => {
+  websocket.on('message', (senderId: string, message: string) => {
     ui.displayMessage(senderId, message, senderId === userId);
   });
   
   // User joined handler
-  websocket.on('userJoined', (joinedUserId) => {
+  websocket.on('userJoined', (joinedUserId: string) => {
     ui.displaySystemMessage(`User ${joinedUserId} joined the chat`);
   });
   
   // User left handler
-  websocket.on('userLeft', (leftUserId) => {
+  websocket.on('userLeft', (leftUserId: string) => {
     ui.displaySystemMessage(`User ${leftUserId} left the chat`);
   });
   
@@ -111,7 +123,7 @@ function setupWebSocketHandlers() {
   });
   
   // Error handler
-  websocket.on('error', (message) => {
+  websocket.on('error', (message: string) => {
     ui.updateStatus('disconnected', 'Connection error');
     ui.displaySystemMessage(`Error: ${message}`);
   });
@@ -119,15 +131,17 @@ function setupWebSocketHandlers() {
 
 /**
  * Handle message form submission
- * @param {string} message - Message text
+ * @param message - Message text
  */
-function handleMessageSubmit(message) {
+function handleMessageSubmit(message: string): void {
   // Send message via WebSocket
   if (websocket.isConnected()) {
     websocket.sendMessage(message);
     
     // Display own message immediately
-    ui.displayMessage(userId, message, true);
+    if (userId) {
+      ui.displayMessage(userId, message, true);
+    }
     
     // Clear input
     ui.clearInput();
@@ -135,4 +149,4 @@ function handleMessageSubmit(message) {
 }
 
 // Initialize application when DOM is loaded
-document.addEventListener('DOMContentLoaded', initApp);
+document.addEventListener('DOMContentLoaded', initApp); 
