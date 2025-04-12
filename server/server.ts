@@ -37,6 +37,11 @@ app.use(express.static(clientDistPath));
 // Initialize WebSocket server with our HTTP server
 const wss = initWebSocketServer(server);
 
+// Health check endpoint for Railway
+app.get('/health', (req, res) => {
+  res.status(200).json({ status: 'ok', timestamp: new Date().toISOString() });
+});
+
 // Define types for the token request
 interface TokenRequest {
   code: string;
