@@ -84,11 +84,14 @@ function serverLog(level: 'info' | 'warn' | 'error', message: string, data?: any
  * @returns WebSocket server instance
  */
 export function initWebSocketServer(server: Server): WebSocketServer {
-  const wss = new WebSocketServer({ server });
+  const wss = new WebSocketServer({ 
+    server,
+    path: '/ws' // Specify path to match client and Discord URL mappings
+  });
   
   // Log WebSocket server events
   wss.on('listening', () => {
-    serverLog('info', 'WebSocket server is listening for connections');
+    serverLog('info', 'WebSocket server is listening for connections on path /ws');
   });
 
   wss.on('error', (error: Error) => {

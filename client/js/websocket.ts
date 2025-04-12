@@ -81,24 +81,12 @@ function clientLog(level: 'info' | 'warn' | 'error', message: string, data?: any
  * @returns WebSocket URL
  */
 const getWebSocketUrl = (): string => {
-  // Check if we're in a Discord environment
-  const isDiscordHost = window.location.host.includes('discordsays.com');
+  const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+  const host = import.meta.env.VITE_WS_HOST || window.location.host;
   
-  if (isDiscordHost) {
-    // Parse Discord client ID from the hostname
-    // Format: <CLIENT_ID>.discordsays.com
-    const hostParts = window.location.host.split('.');
-    const clientId = hostParts[0]; // This is the Discord client ID
-    
-    // Construct WebSocket URL following Discord proxy pattern
-    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    return `${protocol}//${clientId}.discordsays.com/.proxy/ws`;
-  } else {
-    // Default URL for local development
-    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const host = import.meta.env.VITE_WS_HOST || window.location.host;
-    return `${protocol}//${host}`;
-  }
+  // No need for special Discord URL handling, as patchUrlMappings handles it
+  // Just use a simple WebSocket URL - it will be transformed if needed
+  return `${protocol}//${host}/ws`;
 };
 
 /**
@@ -106,58 +94,39 @@ const getWebSocketUrl = (): string => {
  * This helps diagnose issues with Discord hosting
  */
 export function testConnection(): void {
-  // Try different WebSocket URLs to diagnose connection issues
-  const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-  const host = window.location.host;
-  const currentUrl = getWebSocketUrl();
-  const isDiscordHost = host.includes('discordsays.com');
+  const wsUrl = getWebSocketUrl();
+  const isDiscordHost = window.location.host.includes('discordsays.com');
   
-  clientLog('info', 'Testing WebSocket connections...', {
-    windowUrl: window.location.href,
-    currentHost: host,
-    currentWsUrl: currentUrl,
+  clientLog('info', 'Testing WebSocket connection...', {
+    url: wsUrl,
     isDiscordEnvironment: isDiscordHost
   });
   
-  // For discord domains, explain the proxy URL pattern
   if (isDiscordHost) {
-    const hostParts = host.split('.');
-    const clientId = hostParts[0];
-    const correctProxyUrl = `${protocol}//${clientId}.discordsays.com/.proxy/ws`;
-    
-    ui.displaySystemMessage("Discord hosting detected. Using the proxy URL pattern:");
-    ui.displaySystemMessage(`${correctProxyUrl}`);
-    
-    // Test Discord proxy URL
-    const proxyWs = new WebSocket(correctProxyUrl);
-    
-    proxyWs.onopen = () => {
-      clientLog('info', '✅ Discord proxy WebSocket connection successful', { url: correctProxyUrl });
-      proxyWs.close();
-      ui.displaySystemMessage("Discord proxy WebSocket test: SUCCESS! The connection works.");
-    };
-    
-    proxyWs.onerror = () => {
-      clientLog('error', '❌ Discord proxy WebSocket connection failed', { url: correctProxyUrl });
-      ui.displaySystemMessage("Discord proxy WebSocket test: FAILED. Make sure your server endpoints match the proxy pattern.");
-      ui.displaySystemMessage("Check that your Discord Activity manifest has WebSocket permissions.");
-    };
+    ui.displaySystemMessage("Discord environment detected - using URL mappings for WebSocket");
+    ui.displaySystemMessage(`WebSocket URL: ${wsUrl} (will be transformed by Discord proxy)`);
   }
   
-  // Test 1: Try connecting to same host (fallback)
-  const simpleUrl = `${protocol}//${host}`;
-  ui.displaySystemMessage(`Testing direct connection to: ${simpleUrl}`);
-  const localWs = new WebSocket(simpleUrl);
+  // Test connection
+  const testSocket = new WebSocket(wsUrl);
   
-  localWs.onopen = () => {
-    clientLog('info', '✅ Direct WebSocket connection successful', { url: simpleUrl });
-    localWs.close();
-    ui.displaySystemMessage("Direct WebSocket test: SUCCESS. This connection works but may not be accessible from Discord.");
+  testSocket.onopen = () => {
+    clientLog('info', '✅ WebSocket connection successful', { url: wsUrl });
+    testSocket.close();
+    ui.displaySystemMessage("WebSocket test: SUCCESS! The connection works.");
+    ui.displaySystemMessage("You should be able to send and receive messages.");
   };
   
-  localWs.onerror = () => {
-    clientLog('error', '❌ Direct WebSocket connection failed', { url: simpleUrl });
-    ui.displaySystemMessage("Direct WebSocket test: FAILED. Server might not support WebSockets.");
+  testSocket.onerror = (err) => {
+    clientLog('error', '❌ WebSocket connection failed', { url: wsUrl, error: err });
+    ui.displaySystemMessage("WebSocket test: FAILED. Unable to establish connection.");
+    
+    if (isDiscordHost) {
+      ui.displaySystemMessage("Make sure URL mappings are set up in the Discord Developer Portal.");
+      ui.displaySystemMessage("Check that your Activity has WebSocket permissions.");
+    } else {
+      ui.displaySystemMessage("Check that your server is running and WebSocket is enabled.");
+    }
   };
   
   // Display environment info

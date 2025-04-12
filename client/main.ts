@@ -36,6 +36,9 @@ async function initApp(): Promise<void> {
   // Get URL parameters
   params = discord.getUrlParams();
   
+  // Initialize Discord proxy for WebSocket and API connections
+  discord.initDiscordProxy();
+  
   // Check if running in Discord
   if (discord.isDiscordActivity()) {
     await initDiscord();
