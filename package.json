@@ -7,12 +7,12 @@
     "node": ">=18.0.0"
   },
   "scripts": {
-    "start": "pm2-runtime start ecosystem.config.cjs",
-    "start:dev": "node server/dist/server.js",
-    "build": "cd server && npm install && npm run build && cd ../client && npm install && npm run build"
+    "start": "node server/dist/server.js",
+    "dev": "cd server && npm run dev",
+    "build": "cd server && npm run build && cd ../client && npm run build",
+    "install:all": "npm install && cd server && npm install && cd ../client && npm install"
   },
   "dependencies": {
-    "typescript": "^5.3.3",
-    "pm2": "^5.3.0"
+    "typescript": "^5.3.3"
   }
 }
