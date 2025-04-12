@@ -100,14 +100,20 @@ interface TokenError {
   // Don't redirect API requests
   if (req.path.startsWith('/api')) return;
   
-  // Don't redirect WebSocket endpoint
-  if (req.path === '/ws') return;
+  // Don't redirect proxy path for WebSockets to allow Discord connections
+  if (req.path.startsWith('/.proxy/ws')) return;
   
   res.sendFile(path.join(clientDistPath, 'index.html'));
+});
+
+// Discord proxy routing - log proxy requests for debugging
+app.use('/.proxy', (req, res, next) => {
+  console.log(`[Discord Proxy] Request received at: ${req.path}`);
+  next();
 });
 
 // Use the HTTP server instead of the Express app
 server.listen(port, () => {
   console.log(`Server listening on port ${port}`);
-  console.log(`WebSocket server available at ws://localhost:${port}/ws`);
+  console.log(`WebSocket server available at ws://localhost:${port} and wss://<clientId>.discordsays.com/.proxy/ws`);
 }); 

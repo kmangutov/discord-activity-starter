@@ -1,8 +1,7 @@
 /**
  * Discord authentication and SDK initialization
  */
-import { DiscordSDK, patchUrlMappings } from '@discord/embedded-app-sdk';
-import * as ui from './ui.js';
+import { DiscordSDK } from '@discord/embedded-app-sdk';
 
 // Define types for Discord user
 interface DiscordUser {
@@ -120,37 +119,4 @@ export function getUrlParams(): UrlParams {
  */
 export function getSDK(): DiscordSDK | null {
   return discordSDK;
-}
-
-/**
- * Initialize URL mappings for Discord proxy
- */
-export function initDiscordProxy(): void {
-  // Only patch in Discord environment
-  if (isDiscordActivity()) {
-    ui.displayDebugMessage('Initializing Discord URL mappings', { host: window.location.host });
-    
-    try {
-      // Get server host from env or fallback to default
-      const serverHost = import.meta.env.VITE_API_HOST || 'railway-production-ff97.up.railway.app';
-      
-      // Patch all URLs to use Discord's proxy
-      patchUrlMappings([
-        // WebSocket endpoint
-        { prefix: '/ws', target: serverHost },
-        // API endpoints
-        { prefix: '/api', target: serverHost }
-      ]);
-      
-      ui.displayDebugMessage('Discord URL mappings initialized', {
-        mappings: [
-          { prefix: '/ws', target: serverHost },
-          { prefix: '/api', target: serverHost }
-        ]
-      });
-    } catch (error) {
-      console.error('Failed to initialize Discord URL mappings:', error);
-      ui.displayDebugMessage('ERROR: Failed to initialize Discord proxy', error);
-    }
-  }
 } 
