@@ -81,9 +81,24 @@ function clientLog(level: 'info' | 'warn' | 'error', message: string, data?: any
  * @returns WebSocket URL
  */
 const getWebSocketUrl = (): string => {
-  const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-  const host = import.meta.env.VITE_WS_HOST || window.location.host;
-  return `${protocol}//${host}`;
+  // Check if we're in a Discord environment
+  const isDiscordHost = window.location.host.includes('discordsays.com');
+  
+  if (isDiscordHost) {
+    // Parse Discord client ID from the hostname
+    // Format: <CLIENT_ID>.discordsays.com
+    const hostParts = window.location.host.split('.');
+    const clientId = hostParts[0]; // This is the Discord client ID
+    
+    // Construct WebSocket URL following Discord proxy pattern
+    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    return `${protocol}//${clientId}.discordsays.com/.proxy/ws`;
+  } else {
+    // Default URL for local development
+    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const host = import.meta.env.VITE_WS_HOST || window.location.host;
+    return `${protocol}//${host}`;
+  }
 };
 
 /**
@@ -95,35 +110,59 @@ export function testConnection(): void {
   const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
   const host = window.location.host;
   const currentUrl = getWebSocketUrl();
+  const isDiscordHost = host.includes('discordsays.com');
   
   clientLog('info', 'Testing WebSocket connections...', {
     windowUrl: window.location.href,
     currentHost: host,
-    currentWsUrl: currentUrl
+    currentWsUrl: currentUrl,
+    isDiscordEnvironment: isDiscordHost
   });
   
+  // For discord domains, explain the proxy URL pattern
+  if (isDiscordHost) {
+    const hostParts = host.split('.');
+    const clientId = hostParts[0];
+    const correctProxyUrl = `${protocol}//${clientId}.discordsays.com/.proxy/ws`;
+    
+    ui.displaySystemMessage("Discord hosting detected. Using the proxy URL pattern:");
+    ui.displaySystemMessage(`${correctProxyUrl}`);
+    
+    // Test Discord proxy URL
+    const proxyWs = new WebSocket(correctProxyUrl);
+    
+    proxyWs.onopen = () => {
+      clientLog('info', '✅ Discord proxy WebSocket connection successful', { url: correctProxyUrl });
+      proxyWs.close();
+      ui.displaySystemMessage("Discord proxy WebSocket test: SUCCESS! The connection works.");
+    };
+    
+    proxyWs.onerror = () => {
+      clientLog('error', '❌ Discord proxy WebSocket connection failed', { url: correctProxyUrl });
+      ui.displaySystemMessage("Discord proxy WebSocket test: FAILED. Make sure your server endpoints match the proxy pattern.");
+      ui.displaySystemMessage("Check that your Discord Activity manifest has WebSocket permissions.");
+    };
+  }
+  
   // Test 1: Try connecting to same host (fallback)
-  const localWs = new WebSocket(`${protocol}//${host}`);
+  const simpleUrl = `${protocol}//${host}`;
+  ui.displaySystemMessage(`Testing direct connection to: ${simpleUrl}`);
+  const localWs = new WebSocket(simpleUrl);
   
   localWs.onopen = () => {
-    clientLog('info', '✅ Local WebSocket connection successful', { url: `${protocol}//${host}` });
+    clientLog('info', '✅ Direct WebSocket connection successful', { url: simpleUrl });
     localWs.close();
-    ui.displaySystemMessage("Local WebSocket test: SUCCESS. Try using the local URL instead of Discord's.");
+    ui.displaySystemMessage("Direct WebSocket test: SUCCESS. This connection works but may not be accessible from Discord.");
   };
   
   localWs.onerror = () => {
-    clientLog('error', '❌ Local WebSocket connection failed', { url: `${protocol}//${host}` });
-    ui.displaySystemMessage("Local WebSocket test: FAILED. Server might not support WebSockets.");
+    clientLog('error', '❌ Direct WebSocket connection failed', { url: simpleUrl });
+    ui.displaySystemMessage("Direct WebSocket test: FAILED. Server might not support WebSockets.");
   };
   
-  // For discord domains, recommend checking CORS and WebSocket settings
-  if (currentUrl.includes('discordsays.com')) {
-    ui.displaySystemMessage("Discord hosting detected. WebSocket connections require proper CORS configuration.");
-    ui.displaySystemMessage("Check that your Discord Activity is correctly set up with WebSocket permissions.");
-  }
-  
   // Display environment info
-  ui.displaySystemMessage(`Debug info: ${navigator.userAgent} | ${window.location.href}`);
+  ui.displaySystemMessage(`Debug info: ${navigator.userAgent}`);
+  ui.displaySystemMessage(`URL: ${window.location.href}`);
 }
 
 /**
