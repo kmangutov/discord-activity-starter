@@ -46,14 +46,33 @@ function clientLog(level: 'info' | 'warn' | 'error', message: string, data?: any
   
   // Console logging
   if (data) {
-    console[level](`${prefix} ${message}`, data);
+    if (data instanceof Error) {
+      // Properly serialize Error objects with non-enumerable properties
+      console[level](`${prefix} ${message}`, JSON.stringify(data, ["message", "arguments", "type", "name", "stack"]));
+      
+      // For UI logging in debug mode
+      if (DEBUG_MODE) {
+        ui.displayDebugMessage(`${level.toUpperCase()}: ${message}`, {
+          message: data.message,
+          name: data.name,
+          stack: data.stack
+        });
+      }
+    } else {
+      console[level](`${prefix} ${message}`, data);
+      
+      // UI logging if debug mode is enabled
+      if (DEBUG_MODE) {
+        ui.displayDebugMessage(`${level.toUpperCase()}: ${message}`, data);
+      }
+    }
   } else {
     console[level](`${prefix} ${message}`);
-  }
-  
-  // UI logging if debug mode is enabled
-  if (DEBUG_MODE) {
-    ui.displayDebugMessage(`${level.toUpperCase()}: ${message}`, data || '');
+    
+    // UI logging if debug mode is enabled
+    if (DEBUG_MODE) {
+      ui.displayDebugMessage(`${level.toUpperCase()}: ${message}`, '');
+    }
   }
 }
 

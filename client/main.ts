@@ -64,7 +64,13 @@ async function initDiscord(): Promise<void> {
     // Connect to WebSocket
     connectWebSocket();
   } catch (error) {
-    console.error('Discord initialization error:', error);
+    // Properly log the error with all properties
+    if (error instanceof Error) {
+      console.error('Discord initialization error:', 
+        JSON.stringify(error, ["message", "arguments", "type", "name", "stack"]));
+    } else {
+      console.error('Discord initialization error:', error);
+    }
     ui.updateStatus('disconnected', 'Discord initialization failed');
   }
 }

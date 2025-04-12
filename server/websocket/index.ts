@@ -64,7 +64,12 @@ function serverLog(level: 'info' | 'warn' | 'error', message: string, data?: any
   
   if (data) {
     if (typeof data === 'object') {
-      console[level](`${logPrefix} ${message}`, JSON.stringify(data, null, 2));
+      if (data instanceof Error) {
+        // Properly serialize Error objects with non-enumerable properties
+        console[level](`${logPrefix} ${message}`, JSON.stringify(data, ["message", "arguments", "type", "name", "stack"]));
+      } else {
+        console[level](`${logPrefix} ${message}`, JSON.stringify(data, null, 2));
+      }
     } else {
       console[level](`${logPrefix} ${message}`, data);
     }
@@ -197,8 +202,13 @@ function handleMessage(ws: ExtendedWebSocket, message: Buffer): void {
       broadcastToInstance(ws.instanceId, messageData);
     }
   } catch (error) {
+    // Properly serialize the error for logging
     serverLog('error', `Error processing message:`, error);
-    ws.send(JSON.stringify({ type: 'error', message: 'Invalid message format' }));
+    // Send only necessary error info to client
+    ws.send(JSON.stringify({ 
+      type: 'error', 
+      message: error instanceof Error ? error.message : 'Invalid message format'
+    }));
   }
 }
 
