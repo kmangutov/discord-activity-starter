@@ -87,6 +87,46 @@ const getWebSocketUrl = (): string => {
 };
 
 /**
+ * Test if WebSocket connection options are valid
+ * This helps diagnose issues with Discord hosting
+ */
+export function testConnection(): void {
+  // Try different WebSocket URLs to diagnose connection issues
+  const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+  const host = window.location.host;
+  const currentUrl = getWebSocketUrl();
+  
+  clientLog('info', 'Testing WebSocket connections...', {
+    windowUrl: window.location.href,
+    currentHost: host,
+    currentWsUrl: currentUrl
+  });
+  
+  // Test 1: Try connecting to same host (fallback)
+  const localWs = new WebSocket(`${protocol}//${host}`);
+  
+  localWs.onopen = () => {
+    clientLog('info', '✅ Local WebSocket connection successful', { url: `${protocol}//${host}` });
+    localWs.close();
+    ui.displaySystemMessage("Local WebSocket test: SUCCESS. Try using the local URL instead of Discord's.");
+  };
+  
+  localWs.onerror = () => {
+    clientLog('error', '❌ Local WebSocket connection failed', { url: `${protocol}//${host}` });
+    ui.displaySystemMessage("Local WebSocket test: FAILED. Server might not support WebSockets.");
+  };
+  
+  // For discord domains, recommend checking CORS and WebSocket settings
+  if (currentUrl.includes('discordsays.com')) {
+    ui.displaySystemMessage("Discord hosting detected. WebSocket connections require proper CORS configuration.");
+    ui.displaySystemMessage("Check that your Discord Activity is correctly set up with WebSocket permissions.");
+  }
+  
+  // Display environment info
+  ui.displaySystemMessage(`Debug info: ${navigator.userAgent} | ${window.location.href}`);
+}
+
+/**
  * Initialize WebSocket connection
  * @param user - User information to send on connection
  */
@@ -168,8 +208,36 @@ export function connect(user: UserInfo): void {
   };
   
   socket.onerror = (error: Event) => {
-    clientLog('error', 'WebSocket error', error);
-    onErrorHandlers.forEach(handler => handler('Connection error'));
+    // Browser security restrictions limit error details, so add connection context
+    const wsUrl = getWebSocketUrl();
+    const connectionInfo = {
+      url: wsUrl,
+      readyState: socket ? socket.readyState : 'unknown',
+      secure: wsUrl.startsWith('wss:'),
+      timestamp: new Date().toISOString(),
+      browser: navigator.userAgent,
+      // Include user info without sensitive data
+      user: userInfo ? { 
+        instanceId: userInfo.instanceId,
+        hasUserId: !!userInfo.userId
+      } : null
+    };
+    
+    clientLog('error', 'WebSocket connection failed', connectionInfo);
+    clientLog('error', 'WebSocket error object', error);
+    
+    // For user feedback, provide a more descriptive error message
+    let errorMessage = 'Connection error';
+    
+    // Add possible diagnosis based on URL
+    if (wsUrl.includes('discordsays.com')) {
+      errorMessage += '. Discord host may be blocking WebSocket connections.';
+    }
+    
+    // Add guidance for common issues
+    errorMessage += ' Try refreshing the page or checking your network connection.';
+    
+    onErrorHandlers.forEach(handler => handler(errorMessage));
   };
 }
 

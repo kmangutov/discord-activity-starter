@@ -121,7 +121,14 @@ export function onSubmit(callback: (message: string) => void): void {
       if (messageInput) {
         const message = messageInput.value.trim();
         if (message) {
-          callback(message);
+          // Check for debug commands
+          if (message === '/debug' || message === '/test') {
+            displaySystemMessage('Running connection diagnostics...');
+            // This is handled in main.ts with a special handler
+            callback('__DEBUG_TEST_CONNECTION__');
+          } else {
+            callback(message);
+          }
         }
       }
     });

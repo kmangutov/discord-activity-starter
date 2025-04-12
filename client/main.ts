@@ -147,6 +147,14 @@ function setupWebSocketHandlers(): void {
  * @param message - Message text
  */
 function handleMessageSubmit(message: string): void {
+  // Special debug command
+  if (message === '__DEBUG_TEST_CONNECTION__') {
+    ui.displaySystemMessage('Running WebSocket connection tests...');
+    websocket.testConnection();
+    ui.clearInput();
+    return;
+  }
+  
   // Send message via WebSocket
   if (websocket.isConnected()) {
     websocket.sendMessage(message);
@@ -158,6 +166,15 @@ function handleMessageSubmit(message: string): void {
     
     // Clear input
     ui.clearInput();
+  } else {
+    // Not connected, show error
+    ui.displaySystemMessage('Cannot send message: Not connected to server');
+    ui.updateStatus('disconnected', 'Not connected');
+    
+    // Try to reconnect
+    if (params) {
+      connectWebSocket();
+    }
   }
 }
 
