@@ -38,4 +38,4 @@ npm run build && npm run start
 
 ## Discord URL Mapping
 
-Due to issues with Discord's standard `patchUrlMapping` SDK function, this project implements a custom URL mapping approach. See [urlpatching.md](./urlpatching.md) for details.
+Due to not being able to figure out Discord's standard `patchUrlMapping` SDK function, this project implements a custom URL mapping approach. See [urlpatching.md](./urlpatching.md) for details.
